@@ -43,6 +43,7 @@ subdir('protocols')
 
 sources = [
 	'src/main.c',
+	'src/shm.c',
 ]
 
 dependencies = [
