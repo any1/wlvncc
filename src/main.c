@@ -7,13 +7,29 @@
 #include <assert.h>
 #include <errno.h>
 #include <signal.h>
+#include <sys/mman.h>
 #include <aml.h>
 #include <wayland-client.h>
 
 #include "xdg-shell.h"
+#include "shm.h"
+
+struct buffer {
+	int width, height, stride;
+	size_t size;
+	enum wl_shm_format format;
+	struct wl_buffer* wl_buffer;
+	void* pixels;
+};
 
 struct window {
-	struct wl_surface* surface;
+	struct wl_surface* wl_surface;
+	struct xdg_surface* xdg_surface;
+	struct xdg_toplevel* xdg_toplevel;
+
+	int width, height;
+
+	struct buffer* buffer;
 };
 
 static struct wl_display* wl_display;
@@ -21,6 +37,9 @@ static struct wl_registry* wl_registry;
 static struct wl_compositor* wl_compositor;
 static struct wl_shm* wl_shm;
 static struct xdg_wm_base* xdg_wm_base;
+
+static enum wl_shm_format wl_shm_format;
+static bool have_format = false;
 
 static bool do_run = true;
 
@@ -47,12 +66,76 @@ static const struct wl_registry_listener registry_listener = {
 	.global_remove = registry_remove,
 };
 
+static struct buffer* buffer_create(int width, int height, int stride,
+		enum wl_shm_format format)
+{
+	struct buffer* self = calloc(1, sizeof(*self));
+	if (!self)
+		return NULL;
+
+	self->width = width;
+	self->height = height;
+	self->stride = stride;
+	self->format = format;
+
+	self->size = height * stride;
+	int fd = shm_alloc_fd(self->size);
+	if (fd < 0)
+		goto failure;
+
+	self->pixels = mmap(NULL, self->size, PROT_READ | PROT_WRITE,
+			MAP_SHARED, fd, 0);
+	if (!self->pixels)
+		goto mmap_failure;
+
+	struct wl_shm_pool* pool = wl_shm_create_pool(wl_shm, fd, self->size);
+	if (!pool)
+		goto pool_failure;
+
+	self->wl_buffer = wl_shm_pool_create_buffer(pool, 0, width, height,
+			stride, format);
+	wl_shm_pool_destroy(pool);
+	if (!self->wl_buffer)
+		goto shm_failure;
+
+	close(fd);
+	return self;
+
+shm_failure:
+pool_failure:
+	munmap(self->pixels, self->size);
+mmap_failure:
+	close(fd);
+failure:
+	free(self);
+	return NULL;
+}
+
+static void buffer_destroy(struct buffer* self)
+{
+	wl_buffer_destroy(self->wl_buffer);
+	munmap(self->pixels, self->size);
+	free(self);
+}
+
 static void shm_format(void* data, struct wl_shm* shm, uint32_t format)
 {
 	(void)data;
 	(void)wl_shm;
 
-	// TODO: Check formats
+	if (have_format)
+		return;
+
+	switch (format) {
+	case WL_SHM_FORMAT_ARGB8888:
+	case WL_SHM_FORMAT_ABGR8888:
+	case WL_SHM_FORMAT_RGBA8888:
+	case WL_SHM_FORMAT_BGRA8888:
+		wl_shm_format = format;
+		have_format = true;
+	}
+
+	// TODO: Try to get a preferred format?
 }
 
 static const struct wl_shm_listener shm_listener = {
@@ -117,6 +200,127 @@ static int init_signal_handler(void)
 	return rc;
 }
 
+static void window_attach(struct window* w, int x, int y)
+{
+	wl_surface_attach(w->wl_surface, w->buffer->wl_buffer, x, y);
+}
+
+static void window_commit(struct window* w)
+{
+	wl_surface_commit(w->wl_surface);
+}
+
+static void window_damage(struct window* w, int x, int y, int width, int height)
+{
+	wl_surface_damage(w->wl_surface, x, y, width, height);
+}
+
+static void window_clear(struct window* w)
+{
+	window_attach(w, 0, 0);
+	memset(w->buffer->pixels, 0x7f, w->buffer->size);
+	window_damage(w, 0, 0, w->width, w->height);
+	window_commit(w);
+}
+
+static void window_configure(struct window* w)
+{
+	if (w->buffer && (w->width != w->buffer->width ||
+				w->height != w->buffer->height)) {
+		buffer_destroy(w->buffer);
+		w->buffer = NULL;
+	}
+
+	if (!w->buffer)
+		w->buffer = buffer_create(w->width, w->height, w->width * 4,
+				wl_shm_format);
+
+	assert(w->buffer);
+	window_clear(w);
+}
+
+static void xdg_surface_configure(void* data, struct xdg_surface* surface,
+		uint32_t serial)
+{
+	struct window* w = data;
+	xdg_surface_ack_configure(surface, serial);
+	window_configure(w);
+}
+
+static const struct xdg_surface_listener xdg_surface_listener = {
+	.configure = xdg_surface_configure,
+};
+
+static void xdg_toplevel_configure(void* data, struct xdg_toplevel* toplevel,
+		int32_t width, int32_t height, struct wl_array* state)
+{
+//	struct window* w = data;
+//	w->width = width;
+//	w->height = height;
+}
+
+static void xdg_toplevel_close(void* data, struct xdg_toplevel* toplevel)
+{
+	do_run = false;
+}
+
+static const struct xdg_toplevel_listener xdg_toplevel_listener = {
+	.configure = xdg_toplevel_configure,
+	.close = xdg_toplevel_close,
+};
+
+static struct window* window_create(int width, int height, const char* title)
+{
+	struct window* w = calloc(1, sizeof(*w));
+	if (!w)
+		return NULL;
+
+	w->width = width;
+	w->height = height;
+
+	w->wl_surface = wl_compositor_create_surface(wl_compositor);
+	if (!w->wl_surface)
+		goto wl_surface_failure;
+
+	w->xdg_surface = xdg_wm_base_get_xdg_surface(xdg_wm_base, w->wl_surface);
+	if (!w->xdg_surface)
+		goto xdg_surface_failure;
+
+	xdg_surface_add_listener(w->xdg_surface, &xdg_surface_listener, w);
+
+	w->xdg_toplevel = xdg_surface_get_toplevel(w->xdg_surface);
+	if (!w->xdg_toplevel)
+		goto xdg_toplevel_failure;
+
+	xdg_toplevel_add_listener(w->xdg_toplevel, &xdg_toplevel_listener, w);
+
+	xdg_toplevel_set_title(w->xdg_toplevel, title);
+	wl_surface_commit(w->wl_surface);
+
+	window_damage(w, 0, 0, width, height);
+
+	return w;
+
+xdg_toplevel_failure:
+	xdg_surface_destroy(w->xdg_surface);
+xdg_surface_failure:
+	wl_surface_destroy(w->wl_surface);
+wl_surface_failure:
+	free(w);
+	return NULL;
+}
+
+static void window_destroy(struct window* w)
+{
+	if (w->buffer)
+		buffer_destroy(w->buffer);
+
+	xdg_toplevel_destroy(w->xdg_toplevel);
+	xdg_surface_destroy(w->xdg_surface);
+	wl_surface_destroy(w->wl_surface);
+	free(w);
+}
+
 int main(int argc, char* argv[])
 {
 	int rc = -1;
@@ -152,11 +356,12 @@ int main(int argc, char* argv[])
 	xdg_wm_base_add_listener(xdg_wm_base, &xdg_wm_base_listener, NULL);
 	wl_display_roundtrip(wl_display);
 
-	// TODO: Create window
-	// TODO: Create buffer
-	// TODO: Draw to buffer
+	struct window* window = window_create(512, 512, "wlvncc");
+	if (!window)
+		goto window_failure;
 
-//	wl_display_dispatch(wl_display);
+	wl_display_dispatch(wl_display);
+
 	while (do_run) {
 		wl_display_flush(wl_display);
 		aml_poll(aml, -1);
@@ -164,6 +369,8 @@ int main(int argc, char* argv[])
 	}
 
 	rc = 0;
+	window_destroy(window);
+window_failure:
 	wl_compositor_destroy(wl_compositor);
 	wl_shm_destroy(wl_shm);
 	xdg_wm_base_destroy(xdg_wm_base);
