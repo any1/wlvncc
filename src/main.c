@@ -164,6 +164,10 @@ int main(int argc, char* argv[])
 	}
 
 	rc = 0;
+	wl_compositor_destroy(wl_compositor);
+	wl_shm_destroy(wl_shm);
+	xdg_wm_base_destroy(xdg_wm_base);
+
 	wl_registry_destroy(wl_registry);
 registry_failure:
 event_handler_failure:
