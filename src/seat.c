@@ -29,6 +29,9 @@ static void seat_capabilities(void* data, struct wl_seat* wl_seat,
 	struct seat* self = data;
 
 	self->capabilities = capabilities;
+
+	if (self->on_capability_change)
+		self->on_capability_change(self);
 }
 
 static void seat_name(void* data, struct wl_seat* wl_seat, const char* name)

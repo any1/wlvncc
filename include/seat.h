@@ -26,6 +26,9 @@ struct seat {
 	uint32_t id;
 	uint32_t capabilities;
 	char name[256];
+
+	void (*on_capability_change)(struct seat*);
+	void* userdata;
 };
 
 struct seat* seat_new(struct wl_seat* wl_seat, uint32_t id);
