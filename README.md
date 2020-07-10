@@ -27,8 +27,8 @@ cd wlvncc/subprojects
 ln -s ../../aml .
 cd -
 
-meson buid
-meson -C build
+meson build
+ninja -C build
 
 ./build/wlvncc <address>
 ```
