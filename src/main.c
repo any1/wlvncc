@@ -469,11 +469,11 @@ static rfbClient* rfb_client_create(int* argc, char* argv[])
 
 	if (rfb_format_from_wl_shm_format(&cl->format, wl_shm_format) < 0) {
 		fprintf(stderr, "Unsupported pixel format\n");
-		goto failure;
+		return NULL;
 	}
 
 	if (!rfbInitClient(cl, argc, argv))
-		goto failure;
+		return NULL;
 
 	int fd = cl->sock;
 
