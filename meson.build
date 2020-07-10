@@ -27,7 +27,6 @@ cc = meson.get_compiler('c')
 libm = cc.find_library('m', required: false)
 librt = cc.find_library('rt', required: false)
 
-pixman = dependency('pixman-1')
 xkbcommon = dependency('xkbcommon')
 wayland_client = dependency('wayland-client')
 libvncclient = dependency('libvncclient')
@@ -55,7 +54,6 @@ sources = [
 dependencies = [
 	libm,
 	librt,
-	pixman,
 	xkbcommon,
 	aml,
 	wayland_client,
