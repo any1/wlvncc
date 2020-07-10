@@ -15,6 +15,7 @@
 #include "xdg-shell.h"
 #include "shm.h"
 #include "seat.h"
+#include "pointer.h"
 
 struct buffer {
 	int width, height, stride;
@@ -39,6 +40,7 @@ static struct wl_compositor* wl_compositor;
 static struct wl_shm* wl_shm;
 static struct xdg_wm_base* xdg_wm_base;
 static struct wl_list seats;
+struct pointer_collection* pointers;
 
 static enum wl_shm_format wl_shm_format;
 static bool have_format = false;
@@ -46,6 +48,18 @@ static bool have_format = false;
 static bool do_run = true;
 
 struct window* window = NULL;
+
+static void on_seat_capability_change(struct seat* seat)
+{
+	if (seat->capabilities & WL_SEAT_CAPABILITY_POINTER) {
+		// TODO: Make sure this only happens once
+		struct wl_pointer* wl_pointer =
+			wl_seat_get_pointer(seat->wl_seat);
+		pointer_collection_add_wl_pointer(pointers, wl_pointer);
+	} else {
+		// TODO Remove
+	}
+}
 
 static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 		const char* interface, uint32_t version)
@@ -59,7 +73,7 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 		wl_shm = wl_registry_bind(registry, id, &wl_shm_interface, 1);
 	} else if (strcmp(interface, "wl_seat") == 0) {
 		struct wl_seat* wl_seat;
-		wl_seat = wl_registry_bind(registry, id, &wl_seat_interface, 1);
+		wl_seat = wl_registry_bind(registry, id, &wl_seat_interface, 5);
 
 		struct seat* seat = seat_new(wl_seat, id);
 		if (!seat) {
@@ -68,6 +82,7 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 		}
 
 		wl_list_insert(&seats, &seat->link);
+		seat->on_capability_change = on_seat_capability_change;
 	}
 }
 
@@ -311,6 +326,17 @@ static void window_destroy(struct window* w)
 	free(w);
 }
 
+void on_pointer_event(struct pointer_collection* collection,
+		struct pointer* pointer)
+{
+	rfbClient* client = collection->userdata;
+
+	int x = wl_fixed_to_int(pointer->x);
+	int y = wl_fixed_to_int(pointer->y);
+
+	SendPointerEvent(client, x, y, pointer->pressed);
+}
+
 rfbBool rfb_client_alloc_fb(rfbClient* cl)
 {
 	int stride = cl->width * 4; // TODO?
@@ -452,6 +478,12 @@ int main(int argc, char* argv[])
 	if (init_wayland_event_handler() < 0)
 		goto event_handler_failure;
 
+	pointers = pointer_collection_new();
+	if (!pointers)
+		goto pointer_failure;
+
+	pointers->on_frame = on_pointer_event;
+
 	wl_registry = wl_display_get_registry(wl_display);
 	if (!wl_registry)
 		goto registry_failure;
@@ -468,10 +500,13 @@ int main(int argc, char* argv[])
 	wl_shm_add_listener(wl_shm, &shm_listener, NULL);
 	xdg_wm_base_add_listener(xdg_wm_base, &xdg_wm_base_listener, NULL);
 	wl_display_roundtrip(wl_display);
+	wl_display_roundtrip(wl_display);
 
 	rfbClient* vnc = rfb_client_create(&argc, argv);
 	if (!vnc)
 		goto vnc_failure;
+
+	pointers->userdata = vnc;
 
 	wl_display_dispatch(wl_display);
 
@@ -493,6 +528,8 @@ vnc_failure:
 
 	wl_registry_destroy(wl_registry);
 registry_failure:
+	pointer_collection_destroy(pointers);
+pointer_failure:
 event_handler_failure:
 	wl_display_disconnect(wl_display);
 display_failure:

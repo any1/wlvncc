@@ -46,6 +46,7 @@ sources = [
 	'src/main.c',
 	'src/shm.c',
 	'src/seat.c',
+	'src/pointer.c',
 	'src/strlcpy.c',
 ]
 
