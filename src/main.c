@@ -11,11 +11,13 @@
 #include <aml.h>
 #include <wayland-client.h>
 #include <rfb/rfbclient.h>
+#include <xkbcommon/xkbcommon.h>
 
 #include "xdg-shell.h"
 #include "shm.h"
 #include "seat.h"
 #include "pointer.h"
+#include "keyboard.h"
 
 struct buffer {
 	int width, height, stride;
@@ -41,6 +43,7 @@ static struct wl_shm* wl_shm;
 static struct xdg_wm_base* xdg_wm_base;
 static struct wl_list seats;
 struct pointer_collection* pointers;
+struct keyboard_collection* keyboards;
 
 static enum wl_shm_format wl_shm_format;
 static bool have_format = false;
@@ -56,6 +59,15 @@ static void on_seat_capability_change(struct seat* seat)
 		struct wl_pointer* wl_pointer =
 			wl_seat_get_pointer(seat->wl_seat);
 		pointer_collection_add_wl_pointer(pointers, wl_pointer);
+	} else {
+		// TODO Remove
+	}
+
+	if (seat->capabilities & WL_SEAT_CAPABILITY_KEYBOARD) {
+		// TODO: Make sure this only happens once
+		struct wl_keyboard* wl_keyboard =
+			wl_seat_get_keyboard(seat->wl_seat);
+		keyboard_collection_add_wl_keyboard(keyboards, wl_keyboard);
 	} else {
 		// TODO Remove
 	}
@@ -337,6 +349,21 @@ void on_pointer_event(struct pointer_collection* collection,
 	SendPointerEvent(client, x, y, pointer->pressed);
 }
 
+void on_keyboard_event(struct keyboard_collection* collection,
+		struct keyboard* keyboard, uint32_t key, bool is_pressed)
+{
+	rfbClient* client = collection->userdata;
+
+	// TODO handle multiple symbols
+	xkb_keysym_t symbol = xkb_state_key_get_one_sym(keyboard->state, key);
+
+	char name[256];
+	xkb_keysym_get_name(symbol, name, sizeof(name));
+	printf("Got %s %d\n", name, is_pressed ? 0 : 1);
+
+	SendKeyEvent(client, symbol, is_pressed);
+}
+
 rfbBool rfb_client_alloc_fb(rfbClient* cl)
 {
 	int stride = cl->width * 4; // TODO?
@@ -484,6 +511,12 @@ int main(int argc, char* argv[])
 
 	pointers->on_frame = on_pointer_event;
 
+	keyboards = keyboard_collection_new();
+	if (!keyboards)
+		goto keyboards_failure;
+
+	keyboards->on_event = on_keyboard_event;
+
 	wl_registry = wl_display_get_registry(wl_display);
 	if (!wl_registry)
 		goto registry_failure;
@@ -507,6 +540,7 @@ int main(int argc, char* argv[])
 		goto vnc_failure;
 
 	pointers->userdata = vnc;
+	keyboards->userdata = vnc;
 
 	wl_display_dispatch(wl_display);
 
@@ -528,6 +562,8 @@ vnc_failure:
 
 	wl_registry_destroy(wl_registry);
 registry_failure:
+	keyboard_collection_destroy(keyboards);
+keyboards_failure:
 	pointer_collection_destroy(pointers);
 pointer_failure:
 event_handler_failure:

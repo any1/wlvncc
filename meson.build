@@ -28,6 +28,7 @@ libm = cc.find_library('m', required: false)
 librt = cc.find_library('rt', required: false)
 
 pixman = dependency('pixman-1')
+xkbcommon = dependency('xkbcommon')
 wayland_client = dependency('wayland-client')
 libvncclient = dependency('libvncclient')
 
@@ -47,6 +48,7 @@ sources = [
 	'src/shm.c',
 	'src/seat.c',
 	'src/pointer.c',
+	'src/keyboard.c',
 	'src/strlcpy.c',
 ]
 
@@ -54,6 +56,7 @@ dependencies = [
 	libm,
 	librt,
 	pixman,
+	xkbcommon,
 	aml,
 	wayland_client,
 	libvncclient,
