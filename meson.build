@@ -29,6 +29,7 @@ librt = cc.find_library('rt', required: false)
 
 pixman = dependency('pixman-1')
 wayland_client = dependency('wayland-client')
+libvncclient = dependency('libvncclient')
 
 aml_project = subproject('aml', required: false)
 if aml_project.found()
@@ -52,6 +53,7 @@ dependencies = [
 	pixman,
 	aml,
 	wayland_client,
+	libvncclient,
 	client_protos,
 ]
 
