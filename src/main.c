@@ -375,7 +375,6 @@ void on_keyboard_event(struct keyboard_collection* collection,
 
 	char name[256];
 	xkb_keysym_get_name(symbol, name, sizeof(name));
-	printf("Got %s %d\n", name, is_pressed ? 0 : 1);
 
 	SendKeyEvent(client, symbol, is_pressed);
 }
