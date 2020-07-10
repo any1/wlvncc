@@ -129,15 +129,12 @@ static void shm_format(void* data, struct wl_shm* shm, uint32_t format)
 		return;
 
 	switch (format) {
-	case WL_SHM_FORMAT_ARGB8888:
-	case WL_SHM_FORMAT_ABGR8888:
-	case WL_SHM_FORMAT_RGBA8888:
-	case WL_SHM_FORMAT_BGRA8888:
+	case WL_SHM_FORMAT_XRGB8888:
 		wl_shm_format = format;
 		have_format = true;
 	}
 
-	// TODO: Try to get a preferred format?
+	// TODO: Support more formats
 }
 
 static const struct wl_shm_listener shm_listener = {
@@ -299,9 +296,9 @@ static void window_destroy(struct window* w)
 
 rfbBool rfb_client_alloc_fb(rfbClient* cl)
 {
-	int stride = cl->width * 4; // TODO
+	int stride = cl->width * 4; // TODO?
 
-	assert(!window); // TODO
+	assert(!window); // TODO: Support resizing
 
 	window = window_create(cl->desktopName);
 	if (!window)
@@ -335,6 +332,38 @@ void on_rfb_client_server_event(void* obj)
 		do_run = false;
 }
 
+static int rfb_format_from_wl_shm_format(rfbPixelFormat* dst,
+		enum wl_shm_format src)
+{
+	int bpp = -1;
+
+	switch (src) {
+	case WL_SHM_FORMAT_ARGB8888:
+	case WL_SHM_FORMAT_XRGB8888:
+		dst->redShift = 16;
+		dst->greenShift = 8;
+		dst->blueShift = 0;
+		bpp = 32;
+		break;
+	default:
+		return -1;
+	}
+
+	switch (bpp) {
+	case 32:
+		dst->bitsPerPixel = 32;
+		dst->depth = 24;
+		dst->redMax = 0xff;
+		dst->greenMax = 0xff;
+		dst->blueMax = 0xff;
+		break;
+	default:
+		abort();
+	}
+
+	return 0;
+}
+
 static rfbClient* rfb_client_create(int* argc, char* argv[])
 {
 	int bits_per_sample = 8;
@@ -346,11 +375,14 @@ static rfbClient* rfb_client_create(int* argc, char* argv[])
 	if (!cl)
 		return NULL;
 
-	// TODO: Set correct pixel format here
-
 	cl->MallocFrameBuffer = rfb_client_alloc_fb;
 	cl->GotFrameBufferUpdate = rfb_client_update_box;
 	cl->FinishedFrameBufferUpdate = rfb_client_finish_update;
+
+	if (rfb_format_from_wl_shm_format(&cl->format, wl_shm_format) < 0) {
+		fprintf(stderr, "Unsupported pixel format\n");
+		goto failure;
+	}
 
 	if (!rfbInitClient(cl, argc, argv))
 		goto failure;
