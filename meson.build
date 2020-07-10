@@ -45,6 +45,8 @@ subdir('protocols')
 sources = [
 	'src/main.c',
 	'src/shm.c',
+	'src/seat.c',
+	'src/strlcpy.c',
 ]
 
 dependencies = [

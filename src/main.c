@@ -14,6 +14,7 @@
 
 #include "xdg-shell.h"
 #include "shm.h"
+#include "seat.h"
 
 struct buffer {
 	int width, height, stride;
@@ -37,6 +38,7 @@ static struct wl_registry* wl_registry;
 static struct wl_compositor* wl_compositor;
 static struct wl_shm* wl_shm;
 static struct xdg_wm_base* xdg_wm_base;
+static struct wl_list seats;
 
 static enum wl_shm_format wl_shm_format;
 static bool have_format = false;
@@ -55,12 +57,27 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 		xdg_wm_base = wl_registry_bind(registry, id, &xdg_wm_base_interface, 1);
 	} else if (strcmp(interface, "wl_shm") == 0) {
 		wl_shm = wl_registry_bind(registry, id, &wl_shm_interface, 1);
+	} else if (strcmp(interface, "wl_seat") == 0) {
+		struct wl_seat* wl_seat;
+		wl_seat = wl_registry_bind(registry, id, &wl_seat_interface, 1);
+
+		struct seat* seat = seat_new(wl_seat, id);
+		if (!seat) {
+			wl_seat_destroy(wl_seat);
+			return;
+		}
+
+		wl_list_insert(&seats, &seat->link);
 	}
 }
 
 void registry_remove(void* data, struct wl_registry* registry, uint32_t id)
 {
-	// Nothing to do here
+	struct seat* seat = seat_find_by_id(&seats, id);
+	if (seat) {
+		wl_list_remove(&seat->link);
+		seat_destroy(seat);
+	}
 }
 
 static const struct wl_registry_listener registry_listener = {
@@ -439,6 +456,8 @@ int main(int argc, char* argv[])
 	if (!wl_registry)
 		goto registry_failure;
 
+	wl_list_init(&seats);
+
 	wl_registry_add_listener(wl_registry, &registry_listener, wl_display);
 	wl_display_roundtrip(wl_display);
 
@@ -454,7 +473,6 @@ int main(int argc, char* argv[])
 	if (!vnc)
 		goto vnc_failure;
 
-
 	wl_display_dispatch(wl_display);
 
 	while (do_run) {
@@ -468,6 +486,7 @@ int main(int argc, char* argv[])
 		window_destroy(window);
 	rfb_client_destroy(vnc);
 vnc_failure:
+	seat_list_destroy(&seats);
 	wl_compositor_destroy(wl_compositor);
 	wl_shm_destroy(wl_shm);
 	xdg_wm_base_destroy(xdg_wm_base);
