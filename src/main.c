@@ -314,6 +314,9 @@ rfbBool rfb_client_alloc_fb(rfbClient* cl)
 
 void rfb_client_update_box(rfbClient* cl, int x, int y, int width, int height)
 {
+	// TODO: Make sure that the buffer is released at this point, or make
+	// this a side-buffer and copy damaged regions into double buffers.
+
 	if (!window->is_attached)
 		window_attach(window, 0, 0);
 
