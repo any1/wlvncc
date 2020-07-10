@@ -16,3 +16,19 @@ Expect bugs and missing features.
  * ninja
  * pkg-config
  * wayland-protocols
+
+## Building & Running
+```
+git clone https://github.com/any1/aml.git
+git clone https://github.com/any1/wlvncc.git
+
+mkdir wlvncc/subprojects
+cd wlvncc/subprojects
+ln -s ../../aml .
+cd -
+
+meson buid
+meson -C build
+
+./build/wlvncc <address>
+```
