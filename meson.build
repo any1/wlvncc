@@ -78,7 +78,7 @@ configure_file(
 )
 
 executable(
-	'wvncc',
+	'wlvncc',
 	sources,
 	dependencies: dependencies,
 	include_directories: inc,
