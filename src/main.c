@@ -428,43 +428,18 @@ void on_vnc_client_event(void* obj)
 		do_run = false;
 }
 
-static struct vnc_client* connect_to_server(const char* address, int port)
+int init_vnc_client_handler(struct vnc_client* client)
 {
-	struct vnc_client* client = vnc_client_create();
-	if (!client)
-		return NULL;
-
-	client->alloc_fb = on_vnc_client_alloc_fb;
-	client->update_fb = on_vnc_client_update_fb;
-
-	if (vnc_client_set_pixel_format(client, wl_shm_format) < 0) {
-		fprintf(stderr, "Unsupported pixel format\n");
-		return NULL;
-	}
-
-	if (vnc_client_connect(client, address, port) < 0) {
-		fprintf(stderr, "Failed to connect to server\n");
-		goto failure;
-	}
-
 	int fd = vnc_client_get_fd(client);
 
 	struct aml_handler* handler;
 	handler = aml_handler_new(fd, on_vnc_client_event, client, NULL);
 	if (!handler)
-		goto failure;
+		return -1;
 
 	int rc = aml_start(aml_get_default(), handler);
 	aml_unref(handler);
-
-	if (rc < 0)
-		goto failure;
-
-	return client;
-
-failure:
-	vnc_client_destroy(client);
-	return NULL;
+	return rc;
 }
 
 static int usage(int r)
@@ -533,9 +508,25 @@ int main(int argc, char* argv[])
 	wl_display_roundtrip(wl_display);
 	wl_display_roundtrip(wl_display);
 
-	struct vnc_client* vnc = connect_to_server(address, port);
+	struct vnc_client* vnc = vnc_client_create();
 	if (!vnc)
 		goto vnc_failure;
+
+	vnc->alloc_fb = on_vnc_client_alloc_fb;
+	vnc->update_fb = on_vnc_client_update_fb;
+
+	if (vnc_client_set_pixel_format(vnc, wl_shm_format) < 0) {
+		fprintf(stderr, "Unsupported pixel format\n");
+		goto vnc_setup_failure;
+	}
+
+	if (vnc_client_connect(vnc, address, port) < 0) {
+		fprintf(stderr, "Failed to connect to server\n");
+		goto vnc_setup_failure;
+	}
+
+	if (init_vnc_client_handler(vnc) < 0)
+		goto vnc_setup_failure;
 
 	pointers->userdata = vnc;
 	keyboards->userdata = vnc;
@@ -551,6 +542,7 @@ int main(int argc, char* argv[])
 	rc = 0;
 	if (window)
 		window_destroy(window);
+vnc_setup_failure:
 	vnc_client_destroy(vnc);
 vnc_failure:
 	seat_list_destroy(&seats);
