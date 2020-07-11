@@ -26,14 +26,15 @@
 #include <sys/mman.h>
 #include <aml.h>
 #include <wayland-client.h>
-#include <rfb/rfbclient.h>
 #include <xkbcommon/xkbcommon.h>
 
+#include "pixman.h"
 #include "xdg-shell.h"
 #include "shm.h"
 #include "seat.h"
 #include "pointer.h"
 #include "keyboard.h"
+#include "vnc.h"
 
 struct buffer {
 	int width, height, stride;
@@ -49,7 +50,6 @@ struct window {
 	struct xdg_toplevel* xdg_toplevel;
 
 	struct buffer* buffer;
-	bool is_attached;
 };
 
 static struct wl_display* wl_display;
@@ -357,18 +357,18 @@ static void window_destroy(struct window* w)
 void on_pointer_event(struct pointer_collection* collection,
 		struct pointer* pointer)
 {
-	rfbClient* client = collection->userdata;
+	struct vnc_client* client = collection->userdata;
 
 	int x = wl_fixed_to_int(pointer->x);
 	int y = wl_fixed_to_int(pointer->y);
 
-	SendPointerEvent(client, x, y, pointer->pressed);
+	vnc_client_send_pointer_event(client, x, y, pointer->pressed);
 }
 
 void on_keyboard_event(struct keyboard_collection* collection,
 		struct keyboard* keyboard, uint32_t key, bool is_pressed)
 {
-	rfbClient* client = collection->userdata;
+	struct vnc_client* client = collection->userdata;
 
 	// TODO handle multiple symbols
 	xkb_keysym_t symbol = xkb_state_key_get_one_sym(keyboard->state, key);
@@ -376,109 +376,81 @@ void on_keyboard_event(struct keyboard_collection* collection,
 	char name[256];
 	xkb_keysym_get_name(symbol, name, sizeof(name));
 
-	SendKeyEvent(client, symbol, is_pressed);
+	vnc_client_send_keyboard_event(client, symbol, is_pressed);
 }
 
-rfbBool rfb_client_alloc_fb(rfbClient* cl)
+int on_vnc_client_alloc_fb(struct vnc_client* client)
 {
-	int stride = cl->width * 4; // TODO?
-
 	assert(!window); // TODO: Support resizing
 
-	window = window_create(cl->desktopName);
+	int width = vnc_client_get_width(client);
+	int height = vnc_client_get_height(client);
+	int stride = vnc_client_get_stride(client);
+
+	window = window_create(vnc_client_get_desktop_name(client));
 	if (!window)
-		return FALSE;
-
-	window->buffer = buffer_create(cl->width, cl->height, stride,
-			wl_shm_format);
-
-	cl->frameBuffer = window->buffer->pixels;
-
-	return TRUE;
-}
-
-void rfb_client_update_box(rfbClient* cl, int x, int y, int width, int height)
-{
-	// TODO: Make sure that the buffer is released at this point, or make
-	// this a side-buffer and copy damaged regions into double buffers.
-
-	if (!window->is_attached)
-		window_attach(window, 0, 0);
-
-	window_damage(window, x, y, width, height);
-}
-
-void rfb_client_finish_update(rfbClient* cl)
-{
-	window_commit(window);
-}
-
-void on_rfb_client_server_event(void* obj)
-{
-	rfbClient* cl = aml_get_userdata(obj);
-	if (!HandleRFBServerMessage(cl))
-		do_run = false;
-}
-
-static int rfb_format_from_wl_shm_format(rfbPixelFormat* dst,
-		enum wl_shm_format src)
-{
-	int bpp = -1;
-
-	switch (src) {
-	case WL_SHM_FORMAT_ARGB8888:
-	case WL_SHM_FORMAT_XRGB8888:
-		dst->redShift = 16;
-		dst->greenShift = 8;
-		dst->blueShift = 0;
-		bpp = 32;
-		break;
-	default:
 		return -1;
-	}
 
-	switch (bpp) {
-	case 32:
-		dst->bitsPerPixel = 32;
-		dst->depth = 24;
-		dst->redMax = 0xff;
-		dst->greenMax = 0xff;
-		dst->blueMax = 0xff;
-		break;
-	default:
-		abort();
-	}
-
+	window->buffer = buffer_create(width, height, stride, wl_shm_format);
+	vnc_client_set_fb(client, window->buffer->pixels);
 	return 0;
 }
 
-static rfbClient* rfb_client_create(int* argc, char* argv[])
+void on_vnc_client_update_fb(struct vnc_client* client)
 {
-	int bits_per_sample = 8;
-	int samples_per_pixel = 3;
-	int bytes_per_pixel = 4;
+	if (!pixman_region_not_empty(&client->damage))
+		return;
 
-	rfbClient* cl = rfbGetClient(bits_per_sample, samples_per_pixel,
-			bytes_per_pixel);
-	if (!cl)
+	// TODO: Make sure that the buffer is released at this point, or make
+	// this a side-buffer and copy damaged regions into double buffers.
+	window_attach(window, 0, 0);
+
+	int n_rects = 0;
+	struct pixman_box16* box = pixman_region_rectangles(&client->damage,
+			&n_rects);
+
+	for (int i = 0; i < n_rects; ++i) {
+		int x = box[i].x1;
+		int y = box[i].y1;
+		int width = box[i].x2 - x;
+		int height = box[i].y2 - y;
+
+		window_damage(window, x, y, width, height);
+	}
+
+	window_commit(window);
+}
+
+void on_vnc_client_event(void* obj)
+{
+	struct vnc_client* client = aml_get_userdata(obj);
+	if (vnc_client_process(client) < 0)
+		do_run = false;
+}
+
+static struct vnc_client* connect_to_server(const char* address, int port)
+{
+	struct vnc_client* client = vnc_client_create();
+	if (!client)
 		return NULL;
 
-	cl->MallocFrameBuffer = rfb_client_alloc_fb;
-	cl->GotFrameBufferUpdate = rfb_client_update_box;
-	cl->FinishedFrameBufferUpdate = rfb_client_finish_update;
+	client->alloc_fb = on_vnc_client_alloc_fb;
+	client->update_fb = on_vnc_client_update_fb;
 
-	if (rfb_format_from_wl_shm_format(&cl->format, wl_shm_format) < 0) {
+	if (vnc_client_set_pixel_format(client, wl_shm_format) < 0) {
 		fprintf(stderr, "Unsupported pixel format\n");
 		return NULL;
 	}
 
-	if (!rfbInitClient(cl, argc, argv))
-		return NULL;
+	if (vnc_client_connect(client, address, port) < 0) {
+		fprintf(stderr, "Failed to connect to server\n");
+		goto failure;
+	}
 
-	int fd = cl->sock;
+	int fd = vnc_client_get_fd(client);
 
 	struct aml_handler* handler;
-	handler = aml_handler_new(fd, on_rfb_client_server_event, cl, NULL);
+	handler = aml_handler_new(fd, on_vnc_client_event, client, NULL);
 	if (!handler)
 		goto failure;
 
@@ -488,21 +460,32 @@ static rfbClient* rfb_client_create(int* argc, char* argv[])
 	if (rc < 0)
 		goto failure;
 
-	return cl;
+	return client;
 
 failure:
-	rfbClientCleanup(cl);
+	vnc_client_destroy(client);
 	return NULL;
 }
 
-static void rfb_client_destroy(rfbClient* cl)
+static int usage(int r)
 {
-	rfbClientCleanup(cl);
+	fprintf(r ? stderr : stdout, "\
+Usage: wlvncc <address> [port]\n\
+");
+	return r;
 }
 
 int main(int argc, char* argv[])
 {
 	int rc = -1;
+
+	if (argc < 2)
+		return usage(1);
+
+	const char* address = argv[1];
+	int port = 5900;
+	if (argc > 2)
+		port = atoi(argv[2]);
 
 	struct aml* aml = aml_new();
 	if (!aml)
@@ -550,7 +533,7 @@ int main(int argc, char* argv[])
 	wl_display_roundtrip(wl_display);
 	wl_display_roundtrip(wl_display);
 
-	rfbClient* vnc = rfb_client_create(&argc, argv);
+	struct vnc_client* vnc = connect_to_server(address, port);
 	if (!vnc)
 		goto vnc_failure;
 
@@ -568,7 +551,7 @@ int main(int argc, char* argv[])
 	rc = 0;
 	if (window)
 		window_destroy(window);
-	rfb_client_destroy(vnc);
+	vnc_client_destroy(vnc);
 vnc_failure:
 	seat_list_destroy(&seats);
 	wl_compositor_destroy(wl_compositor);

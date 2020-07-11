@@ -9,6 +9,7 @@ Expect bugs and missing features.
  * libvncclient
  * libwayland
  * libxkbcommon
+ * pixman
 
 ## Build Dependencies
  * GCC/clang
