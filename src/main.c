@@ -23,6 +23,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <signal.h>
+#include <getopt.h>
 #include <sys/mman.h>
 #include <aml.h>
 #include <wayland-client.h>
@@ -446,6 +447,14 @@ static int usage(int r)
 {
 	fprintf(r ? stderr : stdout, "\
 Usage: wlvncc <address> [port]\n\
+\n\
+    -c,--compression         Compression level (0 - 9).\n\
+    -e,--encodings=<list>    Set allowed encodings, comma separated list.\n\
+                             Supported values: tight, zrle, ultra, copyrect,\n\
+                             hextile, zlib, corre, rre, raw.\n\
+    -h,--help                Get help.\n\
+    -q,--quality             Quality level (0 - 9).\n\
+\n\
 ");
 	return r;
 }
@@ -454,13 +463,50 @@ int main(int argc, char* argv[])
 {
 	int rc = -1;
 
-	if (argc < 2)
+	const char* encodings = NULL;
+	int quality = -1;
+	int compression = -1;
+	static const char* shortopts = "q:c:e:h";
+
+	static const struct option longopts[] = {
+		{ "compression", required_argument, NULL, 'c' },
+		{ "encodings", required_argument, NULL, 'e' },
+		{ "help", no_argument, NULL, 'h' },
+		{ "quality", required_argument, NULL, 'q' },
+		{ NULL, 0, NULL, 0 }
+	};
+
+	while (1) {
+		int c = getopt_long(argc, argv, shortopts, longopts, NULL);
+		if (c < 0)
+			break;
+
+		switch (c) {
+		case 'q':
+			quality = atoi(optarg);
+			break;
+		case 'c':
+			compression = atoi(optarg);
+			break;
+		case 'e':
+			encodings = optarg;
+			break;
+		case 'h':
+			return usage(0);
+		default:
+			return usage(1);
+		}
+	}
+
+	int n_args = argc - optind;
+
+	if (n_args < 1)
 		return usage(1);
 
-	const char* address = argv[1];
+	const char* address = argv[optind];
 	int port = 5900;
-	if (argc > 2)
-		port = atoi(argv[2]);
+	if (n_args >= 2)
+		port = atoi(argv[optind + 1]);
 
 	struct aml* aml = aml_new();
 	if (!aml)
@@ -519,6 +565,14 @@ int main(int argc, char* argv[])
 		fprintf(stderr, "Unsupported pixel format\n");
 		goto vnc_setup_failure;
 	}
+
+	vnc_client_set_encodings(vnc, encodings);
+
+	if (quality >= 0)
+		vnc_client_set_quality_level(vnc, quality);
+
+	if (compression >= 0)
+		vnc_client_set_compression_level(vnc, compression);
 
 	if (vnc_client_connect(vnc, address, port) < 0) {
 		fprintf(stderr, "Failed to connect to server\n");
