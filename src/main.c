@@ -68,6 +68,7 @@ static bool have_format = false;
 static bool do_run = true;
 
 struct window* window = NULL;
+const char* app_id = "wlvncc";
 
 static void on_seat_capability_change(struct seat* seat)
 {
@@ -308,7 +309,7 @@ static const struct xdg_toplevel_listener xdg_toplevel_listener = {
 	.close = xdg_toplevel_close,
 };
 
-static struct window* window_create(const char* title)
+static struct window* window_create(const char* app_id, const char* title)
 {
 	struct window* w = calloc(1, sizeof(*w));
 	if (!w)
@@ -330,6 +331,7 @@ static struct window* window_create(const char* title)
 
 	xdg_toplevel_add_listener(w->xdg_toplevel, &xdg_toplevel_listener, w);
 
+	xdg_toplevel_set_app_id(w->xdg_toplevel, app_id);
 	xdg_toplevel_set_title(w->xdg_toplevel, title);
 	wl_surface_commit(w->wl_surface);
 
@@ -388,7 +390,7 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 	int height = vnc_client_get_height(client);
 	int stride = vnc_client_get_stride(client);
 
-	window = window_create(vnc_client_get_desktop_name(client));
+	window = window_create(app_id, vnc_client_get_desktop_name(client));
 	if (!window)
 		return -1;
 
@@ -448,6 +450,7 @@ static int usage(int r)
 	fprintf(r ? stderr : stdout, "\
 Usage: wlvncc <address> [port]\n\
 \n\
+    -a,--app-id=<name>       Set the app-id of the window. Default: wlvncc\n\
     -c,--compression         Compression level (0 - 9).\n\
     -e,--encodings=<list>    Set allowed encodings, comma separated list.\n\
                              Supported values: tight, zrle, ultra, copyrect,\n\
@@ -466,9 +469,10 @@ int main(int argc, char* argv[])
 	const char* encodings = NULL;
 	int quality = -1;
 	int compression = -1;
-	static const char* shortopts = "q:c:e:h";
+	static const char* shortopts = "a:q:c:e:h";
 
 	static const struct option longopts[] = {
+		{ "app-id", required_argument, NULL, 'a' },
 		{ "compression", required_argument, NULL, 'c' },
 		{ "encodings", required_argument, NULL, 'e' },
 		{ "help", no_argument, NULL, 'h' },
@@ -482,6 +486,9 @@ int main(int argc, char* argv[])
 			break;
 
 		switch (c) {
+		case 'a':
+			app_id = optarg;
+			break;
 		case 'q':
 			quality = atoi(optarg);
 			break;
