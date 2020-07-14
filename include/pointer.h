@@ -18,6 +18,8 @@
 
 #include <wayland-client.h>
 
+struct wl_cursor_theme;
+
 enum pointer_button_mask {
 	POINTER_BUTTON_LEFT = 1 << 0,
 	POINTER_BUTTON_MIDDLE = 1 << 1,
@@ -29,8 +31,12 @@ struct pointer {
 	struct wl_pointer* wl_pointer;
 	struct wl_list link;
 
+	uint32_t serial;
 	enum pointer_button_mask pressed;
 	wl_fixed_t x, y;
+
+	struct wl_cursor_theme* cursor_theme;
+	struct wl_surface* cursor_surface;
 };
 
 struct pointer_collection {

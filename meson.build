@@ -30,6 +30,7 @@ librt = cc.find_library('rt', required: false)
 xkbcommon = dependency('xkbcommon')
 pixman = dependency('pixman-1')
 wayland_client = dependency('wayland-client')
+wayland_cursor = dependency('wayland-cursor')
 libvncclient = dependency('libvncclient')
 
 aml_project = subproject('aml', required: false)
@@ -60,6 +61,7 @@ dependencies = [
 	pixman,
 	aml,
 	wayland_client,
+	wayland_cursor,
 	libvncclient,
 	client_protos,
 ]
