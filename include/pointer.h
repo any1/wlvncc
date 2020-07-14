@@ -20,6 +20,11 @@
 
 struct wl_cursor_theme;
 
+enum pointer_cursor_type {
+	POINTER_CURSOR_NONE = 0,
+	POINTER_CURSOR_LEFT_PTR,
+};
+
 enum pointer_button_mask {
 	POINTER_BUTTON_LEFT = 1 << 0,
 	POINTER_BUTTON_MIDDLE = 1 << 1,
@@ -37,15 +42,18 @@ struct pointer {
 
 	struct wl_cursor_theme* cursor_theme;
 	struct wl_surface* cursor_surface;
+
+	enum pointer_cursor_type cursor_type;
 };
 
 struct pointer_collection {
 	struct wl_list pointers;
 	void (*on_frame)(struct pointer_collection*, struct pointer*);
+	enum pointer_cursor_type cursor_type;
 	void* userdata;
 };
 
-struct pointer_collection* pointer_collection_new(void);
+struct pointer_collection* pointer_collection_new(enum pointer_cursor_type);
 void pointer_collection_destroy(struct pointer_collection*);
 
 int pointer_collection_add_wl_pointer(struct pointer_collection* self,

@@ -456,6 +456,7 @@ Usage: wlvncc <address> [port]\n\
                              Supported values: tight, zrle, ultra, copyrect,\n\
                              hextile, zlib, corre, rre, raw.\n\
     -h,--help                Get help.\n\
+    -n,--hide-cursor         Hide the client-side cursor.\n\
     -q,--quality             Quality level (0 - 9).\n\
 \n\
 ");
@@ -466,10 +467,11 @@ int main(int argc, char* argv[])
 {
 	int rc = -1;
 
+	enum pointer_cursor_type cursor_type = POINTER_CURSOR_LEFT_PTR;
 	const char* encodings = NULL;
 	int quality = -1;
 	int compression = -1;
-	static const char* shortopts = "a:q:c:e:h";
+	static const char* shortopts = "a:q:c:e:hn";
 
 	static const struct option longopts[] = {
 		{ "app-id", required_argument, NULL, 'a' },
@@ -477,6 +479,7 @@ int main(int argc, char* argv[])
 		{ "encodings", required_argument, NULL, 'e' },
 		{ "help", no_argument, NULL, 'h' },
 		{ "quality", required_argument, NULL, 'q' },
+		{ "hide-cursor", no_argument, NULL, 'n' },
 		{ NULL, 0, NULL, 0 }
 	};
 
@@ -497,6 +500,9 @@ int main(int argc, char* argv[])
 			break;
 		case 'e':
 			encodings = optarg;
+			break;
+		case 'n':
+			cursor_type = POINTER_CURSOR_NONE;
 			break;
 		case 'h':
 			return usage(0);
@@ -531,7 +537,7 @@ int main(int argc, char* argv[])
 	if (init_wayland_event_handler() < 0)
 		goto event_handler_failure;
 
-	pointers = pointer_collection_new();
+	pointers = pointer_collection_new(cursor_type);
 	if (!pointers)
 		goto pointer_failure;
 

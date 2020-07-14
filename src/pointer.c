@@ -43,14 +43,19 @@ static struct wl_cursor_theme* pointer_load_cursor_theme(void)
 	return wl_cursor_theme_load(xcursor_theme, xcursor_size, wl_shm);
 }
 
-struct pointer* pointer_new(struct wl_pointer* wl_pointer)
+struct pointer* pointer_new(struct wl_pointer* wl_pointer,
+		enum pointer_cursor_type cursor_type)
 {
 	struct pointer* self = calloc(1, sizeof(*self));
 	if (!self)
 		return NULL;
 
 	self->wl_pointer = wl_pointer;
-	self->cursor_theme = pointer_load_cursor_theme();
+	self->cursor_type = cursor_type;
+
+	if (cursor_type == POINTER_CURSOR_LEFT_PTR)
+		self->cursor_theme = pointer_load_cursor_theme();
+
 	self->cursor_surface = wl_compositor_create_surface(wl_compositor);
 
 	return self;
@@ -59,18 +64,21 @@ struct pointer* pointer_new(struct wl_pointer* wl_pointer)
 void pointer_destroy(struct pointer* self)
 {
 	wl_pointer_destroy(self->wl_pointer);
-	wl_cursor_theme_destroy(self->cursor_theme);
+	if (self->cursor_theme)
+		wl_cursor_theme_destroy(self->cursor_theme);
 	wl_surface_destroy(self->cursor_surface);
 	free(self);
 }
 
-struct pointer_collection* pointer_collection_new(void)
+struct pointer_collection* pointer_collection_new(
+		enum pointer_cursor_type cursor_type)
 {
 	struct pointer_collection* self = calloc(1, sizeof(*self));
 	if (!self)
 		return NULL;
 
 	wl_list_init(&self->pointers);
+	self->cursor_type = cursor_type;
 
 	return self;
 }
@@ -99,7 +107,15 @@ struct pointer* pointer_collection_find_wl_pointer(
 	return NULL;
 }
 
-static void pointer_update_cursor(struct pointer* self)
+static void pointer_update_cursor_none(struct pointer* self)
+{
+	wl_surface_attach(self->cursor_surface, NULL, 0, 0);
+	wl_pointer_set_cursor(self->wl_pointer, self->serial,
+			self->cursor_surface, 0, 0);
+	wl_surface_commit(self->cursor_surface);
+}
+
+static void pointer_update_cursor_left_ptr(struct pointer* self)
 {
 	struct wl_cursor* cursor = wl_cursor_theme_get_cursor(
 			self->cursor_theme, "left_ptr");
@@ -116,6 +132,20 @@ static void pointer_update_cursor(struct pointer* self)
 	wl_surface_damage_buffer(self->cursor_surface, 0, 0, image->width,
 			image->height);
 	wl_surface_commit(self->cursor_surface);
+}
+
+static void pointer_update_cursor(struct pointer* self)
+{
+	switch (self->cursor_type) {
+	case POINTER_CURSOR_NONE:
+		pointer_update_cursor_none(self);
+		return;
+	case POINTER_CURSOR_LEFT_PTR:
+		pointer_update_cursor_left_ptr(self);
+		return;
+	}
+
+	abort();
 }
 
 static void pointer_enter(void* data, struct wl_pointer* wl_pointer,
@@ -244,7 +274,7 @@ static struct wl_pointer_listener pointer_listener = {
 int pointer_collection_add_wl_pointer(struct pointer_collection* self,
 		struct wl_pointer* wl_pointer)
 {
-	struct pointer* pointer = pointer_new(wl_pointer);
+	struct pointer* pointer = pointer_new(wl_pointer, self->cursor_type);
 	if (!pointer)
 		return -1;
 
