@@ -55,8 +55,8 @@ struct window {
 
 static struct wl_display* wl_display;
 static struct wl_registry* wl_registry;
-static struct wl_compositor* wl_compositor;
-static struct wl_shm* wl_shm;
+struct wl_compositor* wl_compositor = NULL;
+struct wl_shm* wl_shm = NULL;
 static struct xdg_wm_base* xdg_wm_base;
 static struct wl_list seats;
 struct pointer_collection* pointers;
@@ -96,7 +96,7 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 {
 	if (strcmp(interface, "wl_compositor") == 0) {
 		wl_compositor = wl_registry_bind(registry, id,
-				&wl_compositor_interface, 1);
+				&wl_compositor_interface, 4);
 	} else if (strcmp(interface, "xdg_wm_base") == 0) {
 		xdg_wm_base = wl_registry_bind(registry, id, &xdg_wm_base_interface, 1);
 	} else if (strcmp(interface, "wl_shm") == 0) {
