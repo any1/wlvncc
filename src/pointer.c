@@ -24,6 +24,8 @@
 
 #include "pointer.h"
 
+#define STEP_SIZE 15.0
+
 extern struct wl_shm* wl_shm;
 extern struct wl_compositor* wl_compositor;
 
@@ -228,7 +230,19 @@ static void pointer_button(void* data, struct wl_pointer* wl_pointer,
 static void pointer_axis(void* data, struct wl_pointer* wl_pointer, uint32_t t,
 		enum wl_pointer_axis axis, wl_fixed_t value)
 {
-	// TODO
+	struct pointer_collection* self = data;
+	struct pointer* pointer =
+		pointer_collection_find_wl_pointer(self, wl_pointer);
+
+	switch (axis) {
+	case WL_POINTER_AXIS_VERTICAL_SCROLL:
+		pointer->vertical_axis_value += wl_fixed_to_double(value);
+		break;
+	case WL_POINTER_AXIS_HORIZONTAL_SCROLL:
+		pointer->horizontal_axis_value += wl_fixed_to_double(value);
+		break;
+	default:;
+	}
 }
 
 static void pointer_axis_source(void* data, struct wl_pointer* wl_pointer,
@@ -266,6 +280,15 @@ static void pointer_frame(void* data, struct wl_pointer* wl_pointer)
 	struct pointer_collection* self = data;
 	struct pointer* pointer =
 		pointer_collection_find_wl_pointer(self, wl_pointer);
+
+	double vertical_steps = trunc(pointer->vertical_axis_value / STEP_SIZE);
+	pointer->vertical_axis_value -= vertical_steps * STEP_SIZE;
+
+	double horizontal_steps = trunc(pointer->horizontal_axis_value / STEP_SIZE);
+	pointer->horizontal_axis_value -= horizontal_steps * STEP_SIZE;
+
+	pointer->vertical_scroll_steps += vertical_steps;
+	pointer->horizontal_scroll_steps += horizontal_steps;
 
 	self->on_frame(self, pointer);
 

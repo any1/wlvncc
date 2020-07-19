@@ -47,6 +47,9 @@ struct pointer {
 	int vertical_scroll_steps;
 	int horizontal_scroll_steps;
 
+	double vertical_axis_value;
+	double horizontal_axis_value;
+
 	struct wl_cursor_theme* cursor_theme;
 	struct wl_surface* cursor_surface;
 
