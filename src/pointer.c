@@ -221,7 +221,6 @@ static void pointer_button(void* data, struct wl_pointer* wl_pointer,
 	case BTN_MIDDLE:
 		pointer_set_button_state(pointer, POINTER_BUTTON_MIDDLE, state);
 		break;
-
 	// TODO: More buttons
 	}
 }
@@ -247,7 +246,19 @@ static void pointer_axis_stop(void* data, struct wl_pointer* wl_pointer,
 static void pointer_axis_discrete(void* data, struct wl_pointer* wl_pointer,
 		enum wl_pointer_axis axis, int steps)
 {
-	// TODO
+	struct pointer_collection* self = data;
+	struct pointer* pointer =
+		pointer_collection_find_wl_pointer(self, wl_pointer);
+
+	switch (axis) {
+	case WL_POINTER_AXIS_VERTICAL_SCROLL:
+		pointer->vertical_scroll_steps += steps;
+		break;
+	case WL_POINTER_AXIS_HORIZONTAL_SCROLL:
+		pointer->horizontal_scroll_steps += steps;
+		break;
+	default:;
+	}
 }
 
 static void pointer_frame(void* data, struct wl_pointer* wl_pointer)
@@ -257,6 +268,9 @@ static void pointer_frame(void* data, struct wl_pointer* wl_pointer)
 		pointer_collection_find_wl_pointer(self, wl_pointer);
 
 	self->on_frame(self, pointer);
+
+	pointer->vertical_scroll_steps = 0;
+	pointer->horizontal_scroll_steps = 0;
 }
 
 static struct wl_pointer_listener pointer_listener = {

@@ -30,6 +30,10 @@ enum pointer_button_mask {
 	POINTER_BUTTON_MIDDLE = 1 << 1,
 	POINTER_BUTTON_RIGHT = 1 << 2,
 	// TODO: More buttons
+	POINTER_SCROLL_UP = 1 << 3,
+	POINTER_SCROLL_DOWN = 1 << 4,
+	POINTER_SCROLL_LEFT = 1 << 5,
+	POINTER_SCROLL_RIGHT = 1 << 6,
 };
 
 struct pointer {
@@ -39,6 +43,9 @@ struct pointer {
 	uint32_t serial;
 	enum pointer_button_mask pressed;
 	wl_fixed_t x, y;
+
+	int vertical_scroll_steps;
+	int horizontal_scroll_steps;
 
 	struct wl_cursor_theme* cursor_theme;
 	struct wl_surface* cursor_surface;

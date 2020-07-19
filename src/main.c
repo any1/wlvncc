@@ -365,7 +365,39 @@ void on_pointer_event(struct pointer_collection* collection,
 	int x = wl_fixed_to_int(pointer->x);
 	int y = wl_fixed_to_int(pointer->y);
 
-	vnc_client_send_pointer_event(client, x, y, pointer->pressed);
+	enum pointer_button_mask pressed = pointer->pressed;
+	int vertical_steps = pointer->vertical_scroll_steps;
+	int horizontal_steps = pointer->horizontal_scroll_steps;
+
+	if (!vertical_steps && !horizontal_steps) {
+		vnc_client_send_pointer_event(client, x, y, pressed);
+		return;
+	}
+
+	enum pointer_button_mask scroll_mask = 0;
+	if (vertical_steps < 0) {
+		vertical_steps *= -1;
+		scroll_mask |= POINTER_SCROLL_UP;
+	} else {
+		scroll_mask |= POINTER_SCROLL_DOWN;
+	}
+
+	if (horizontal_steps < 0) {
+		horizontal_steps *= -1;
+		scroll_mask |= POINTER_SCROLL_LEFT;
+	} else {
+		scroll_mask |= POINTER_SCROLL_RIGHT;
+	}
+
+	while (horizontal_steps > 0 || vertical_steps > 0) {
+		vnc_client_send_pointer_event(client, x, y, pressed | scroll_mask);
+		vnc_client_send_pointer_event(client, x, y, pressed);
+
+		if (--vertical_steps <= 0)
+			scroll_mask &= ~(POINTER_SCROLL_UP | POINTER_SCROLL_DOWN);
+		if (--horizontal_steps <= 0)
+			scroll_mask &= ~(POINTER_SCROLL_LEFT | POINTER_SCROLL_RIGHT);
+	}
 }
 
 void on_keyboard_event(struct keyboard_collection* collection,
