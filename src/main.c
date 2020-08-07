@@ -611,7 +611,8 @@ int main(int argc, char* argv[])
 		goto vnc_setup_failure;
 	}
 
-	vnc_client_set_encodings(vnc, encodings);
+	if (encodings)
+		vnc_client_set_encodings(vnc, encodings);
 
 	if (quality >= 0)
 		vnc_client_set_quality_level(vnc, quality);
