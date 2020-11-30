@@ -411,7 +411,7 @@ void on_keyboard_event(struct keyboard_collection* collection,
 	char name[256];
 	xkb_keysym_get_name(symbol, name, sizeof(name));
 
-	vnc_client_send_keyboard_event(client, symbol, is_pressed);
+	vnc_client_send_keyboard_event(client, symbol, key - 8, is_pressed);
 }
 
 int on_vnc_client_alloc_fb(struct vnc_client* client)

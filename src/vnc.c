@@ -25,6 +25,9 @@
 
 #include "vnc.h"
 
+extern const unsigned short code_map_linux_to_qnum[];
+extern const unsigned int code_map_linux_to_qnum_len;
+
 static rfbBool vnc_client_alloc_fb(rfbClient* client)
 {
 	struct vnc_client* self = rfbClientGetClientData(client, NULL);
@@ -210,9 +213,16 @@ void vnc_client_send_pointer_event(struct vnc_client* self, int x, int y,
 }
 
 void vnc_client_send_keyboard_event(struct vnc_client* self, uint32_t symbol,
-		bool is_pressed)
+		uint32_t code, bool is_pressed)
 {
-	SendKeyEvent(self->client, symbol, is_pressed);
+	if (code >= code_map_linux_to_qnum_len)
+		return;
+
+	uint32_t qnum = code_map_linux_to_qnum[code];
+	if (!qnum)
+		qnum = code;
+
+	SendExtendedKeyEvent(self->client, symbol, qnum, is_pressed);
 }
 
 void vnc_client_set_encodings(struct vnc_client* self, const char* encodings)

@@ -60,6 +60,7 @@ sources = [
 	'src/keyboard.c',
 	'src/vnc.c',
 	'src/strlcpy.c',
+	'src/evdev-to-qnum.c',
 ]
 
 dependencies = [

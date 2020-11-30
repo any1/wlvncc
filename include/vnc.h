@@ -50,7 +50,7 @@ int vnc_client_process(struct vnc_client* self);
 void vnc_client_send_pointer_event(struct vnc_client* self, int x, int y,
 		uint32_t button_mask);
 void vnc_client_send_keyboard_event(struct vnc_client* self, uint32_t symbol,
-		bool is_pressed);
+		uint32_t code, bool is_pressed);
 void vnc_client_set_encodings(struct vnc_client* self, const char* encodings);
 void vnc_client_set_quality_level(struct vnc_client* self, int value);
 void vnc_client_set_compression_level(struct vnc_client* self, int value);
