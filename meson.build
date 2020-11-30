@@ -8,6 +8,8 @@ project(
 	],
 )
 
+cmake = import('cmake')
+
 buildtype = get_option('buildtype')
 host_system = host_machine.system()
 prefix = get_option('prefix')
@@ -31,7 +33,13 @@ xkbcommon = dependency('xkbcommon')
 pixman = dependency('pixman-1')
 wayland_client = dependency('wayland-client')
 wayland_cursor = dependency('wayland-cursor')
-libvncclient = dependency('libvncclient')
+
+libvncserver_project = cmake.subproject('libvncserver')
+if libvncserver_project.found()
+	libvncclient = libvncserver_project.dependency('vncclient')
+else
+	libvncclient = dependency('libvncclient')
+endif
 
 aml_project = subproject('aml', required: false)
 if aml_project.found()
