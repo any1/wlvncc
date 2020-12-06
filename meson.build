@@ -34,7 +34,10 @@ pixman = dependency('pixman-1')
 wayland_client = dependency('wayland-client')
 wayland_cursor = dependency('wayland-cursor')
 
-libvncserver_project = cmake.subproject('libvncserver')
+libvncserver_opt = cmake.subproject_options()
+libvncserver_opt.add_cmake_defines({'BUILD_SHARED_LIBS': false})
+
+libvncserver_project = cmake.subproject('libvncserver', options: libvncserver_opt)
 if libvncserver_project.found()
 	libvncclient = libvncserver_project.dependency('vncclient')
 else
