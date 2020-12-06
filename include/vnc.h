@@ -17,6 +17,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <unistd.h>
 #include <pixman.h>
 #include <wayland-client.h>
 #include <rfb/rfbclient.h>
@@ -26,6 +27,7 @@ struct vnc_client {
 
 	int (*alloc_fb)(struct vnc_client*);
 	void (*update_fb)(struct vnc_client*);
+	void (*cut_text)(struct vnc_client*, const char*, size_t);
 
 	void* userdata;
 	struct pixman_region16 damage;
@@ -54,3 +56,5 @@ void vnc_client_send_keyboard_event(struct vnc_client* self, uint32_t symbol,
 void vnc_client_set_encodings(struct vnc_client* self, const char* encodings);
 void vnc_client_set_quality_level(struct vnc_client* self, int value);
 void vnc_client_set_compression_level(struct vnc_client* self, int value);
+void vnc_client_send_cut_text(struct vnc_client* self, const char* text,
+		size_t len);

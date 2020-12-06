@@ -56,6 +56,15 @@ static void vnc_client_finish_update(rfbClient* client)
 	pixman_region_clear(&self->damage);
 }
 
+static void vnc_client_got_cut_text(rfbClient* client, const char* text,
+		int len)
+{
+	struct vnc_client* self = rfbClientGetClientData(client, NULL);
+	assert(self);
+
+	self->cut_text(self, text, len);
+}
+
 struct vnc_client* vnc_client_create(void)
 {
 	struct vnc_client* self = calloc(1, sizeof(*self));
@@ -80,6 +89,7 @@ struct vnc_client* vnc_client_create(void)
 	client->MallocFrameBuffer = vnc_client_alloc_fb;
 	client->GotFrameBufferUpdate = vnc_client_update_box;
 	client->FinishedFrameBufferUpdate = vnc_client_finish_update;
+	client->GotXCutText = vnc_client_got_cut_text;
 
 	return self;
 
@@ -239,4 +249,11 @@ void vnc_client_set_quality_level(struct vnc_client* self, int value)
 void vnc_client_set_compression_level(struct vnc_client* self, int value)
 {
 	self->client->appData.compressLevel = value;
+}
+
+void vnc_client_send_cut_text(struct vnc_client* self, const char* text,
+		size_t len)
+{
+	// libvncclient doesn't modify text, so typecast is OK.
+	SendClientCutText(self->client, (char*)text, len);
 }
