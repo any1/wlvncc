@@ -19,13 +19,19 @@ Expect bugs and missing features.
  * wayland-protocols
 
 ## Building & Running
+At the time of writing, an unreleased version of libvncclient is required. So,
+you must either use bleeding edge git based packages for the project, or build
+libvncclient as a subproject.
+
 ```
 git clone https://github.com/any1/aml.git
+git clone https://github.com/LibVNC/libvncserver.git
 git clone https://github.com/any1/wlvncc.git
 
 mkdir wlvncc/subprojects
 cd wlvncc/subprojects
 ln -s ../../aml .
+ln -s ../../libvncserver .
 cd -
 
 meson build
