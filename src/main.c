@@ -43,6 +43,7 @@ struct buffer {
 	enum wl_shm_format format;
 	struct wl_buffer* wl_buffer;
 	void* pixels;
+	bool is_attached;
 };
 
 struct window {
@@ -130,6 +131,17 @@ static const struct wl_registry_listener registry_listener = {
 	.global_remove = registry_remove,
 };
 
+static void buffer_release(void* data, struct wl_buffer* wl_buffer)
+{
+	(void)wl_buffer;
+	struct buffer* self = data;
+	self->is_attached = false;
+}
+
+static const struct wl_buffer_listener buffer_listener = {
+	.release = buffer_release,
+};
+
 static struct buffer* buffer_create(int width, int height, int stride,
 		enum wl_shm_format format)
 {
@@ -163,6 +175,9 @@ static struct buffer* buffer_create(int width, int height, int stride,
 		goto shm_failure;
 
 	close(fd);
+
+	wl_buffer_add_listener(self->wl_buffer, &buffer_listener, self);
+
 	return self;
 
 shm_failure:
@@ -263,6 +278,7 @@ static int init_signal_handler(void)
 
 static void window_attach(struct window* w, int x, int y)
 {
+	w->buffer->is_attached = true;
 	wl_surface_attach(w->wl_surface, w->buffer->wl_buffer, x, y);
 }
 
@@ -436,8 +452,9 @@ void on_vnc_client_update_fb(struct vnc_client* client)
 	if (!pixman_region_not_empty(&client->damage))
 		return;
 
-	// TODO: Make sure that the buffer is released at this point, or make
-	// this a side-buffer and copy damaged regions into double buffers.
+	if (window->buffer->is_attached)
+		fprintf(stderr, "Oops, buffer is still attached.\n");
+
 	window_attach(window, 0, 0);
 
 	int n_rects = 0;
