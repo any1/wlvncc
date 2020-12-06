@@ -222,7 +222,8 @@ void vnc_client_send_keyboard_event(struct vnc_client* self, uint32_t symbol,
 	if (!qnum)
 		qnum = code;
 
-	SendExtendedKeyEvent(self->client, symbol, qnum, is_pressed);
+	if (!SendExtendedKeyEvent(self->client, symbol, qnum, is_pressed))
+		SendKeyEvent(self->client, symbol, is_pressed);
 }
 
 void vnc_client_set_encodings(struct vnc_client* self, const char* encodings)
