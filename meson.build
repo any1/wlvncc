@@ -44,7 +44,8 @@ else
 	libvncclient = dependency('libvncclient')
 endif
 
-aml_project = subproject('aml', required: false)
+aml_project = subproject('aml', required: false,
+		default_options: ['default_library=static'])
 if aml_project.found()
 	aml = aml_project.get_variable('aml_dep')
 else
