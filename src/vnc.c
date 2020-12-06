@@ -62,7 +62,8 @@ static void vnc_client_got_cut_text(rfbClient* client, const char* text,
 	struct vnc_client* self = rfbClientGetClientData(client, NULL);
 	assert(self);
 
-	self->cut_text(self, text, len);
+	if (self->cut_text)
+		self->cut_text(self, text, len);
 }
 
 struct vnc_client* vnc_client_create(void)
