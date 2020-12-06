@@ -35,7 +35,10 @@ wayland_client = dependency('wayland-client')
 wayland_cursor = dependency('wayland-cursor')
 
 libvncserver_opt = cmake.subproject_options()
-libvncserver_opt.add_cmake_defines({'BUILD_SHARED_LIBS': false})
+libvncserver_opt.add_cmake_defines({
+	'BUILD_SHARED_LIBS': false,
+	'LIBVNCSERVER_INSTALL': false,
+})
 
 libvncserver_project = cmake.subproject('libvncserver', options: libvncserver_opt)
 if libvncserver_project.found()
