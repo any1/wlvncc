@@ -40,7 +40,8 @@ libvncserver_opt.add_cmake_defines({
 	'LIBVNCSERVER_INSTALL': false,
 })
 
-libvncserver_project = cmake.subproject('libvncserver', options: libvncserver_opt)
+libvncserver_project = cmake.subproject('libvncserver', required: false,
+		options: libvncserver_opt)
 if libvncserver_project.found()
 	libvncclient = libvncserver_project.dependency('vncclient')
 else
