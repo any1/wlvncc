@@ -139,6 +139,39 @@ int vnc_client_connect(struct vnc_client* self, const char* address, int port)
 	return 0;
 }
 
+int vnc_client_reverse_connect(struct vnc_client* self, char** address, int port){
+	rfbClient* client = self->client;
+
+	if (!ReverseConnectToRFBServer(client, *address, port))
+		return -1;
+
+	if (!InitialiseRFBConnection(client))
+		return -1;
+
+	client->width = client->si.framebufferWidth;
+	client->height = client->si.framebufferHeight;
+
+	if (!client->MallocFrameBuffer(client))
+		return -1;
+
+	if (!SetFormatAndEncodings(client))
+		return -1;
+
+	if (client->updateRect.x < 0) {
+		client->updateRect.x = client->updateRect.y = 0;
+		client->updateRect.w = client->width;
+		client->updateRect.h = client->height;
+	}
+
+	if (!SendFramebufferUpdateRequest(client,
+				client->updateRect.x, client->updateRect.y,
+				client->updateRect.w, client->updateRect.h,
+				FALSE))
+		return -1;
+
+	return 0;
+}
+
 int vnc_client_set_pixel_format(struct vnc_client* self,
 		enum wl_shm_format format)
 {
