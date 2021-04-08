@@ -524,6 +524,7 @@ Usage: wlvncc <address> [port]\n\
     -h,--help                Get help.\n\
     -n,--hide-cursor         Hide the client-side cursor.\n\
     -q,--quality             Quality level (0 - 9).\n\
+    -q,--reverse-connection  Listen on the port for the server to connect back to us.\n\
 \n\
 ");
 	return r;
@@ -537,7 +538,8 @@ int main(int argc, char* argv[])
 	const char* encodings = NULL;
 	int quality = -1;
 	int compression = -1;
-	static const char* shortopts = "a:q:c:e:hn";
+	bool reverse_connection = false;
+	static const char* shortopts = "a:q:c:e:hnr";
 
 	static const struct option longopts[] = {
 		{ "app-id", required_argument, NULL, 'a' },
@@ -546,6 +548,7 @@ int main(int argc, char* argv[])
 		{ "help", no_argument, NULL, 'h' },
 		{ "quality", required_argument, NULL, 'q' },
 		{ "hide-cursor", no_argument, NULL, 'n' },
+		{ "reverse-connection", no_argument, NULL, 'r'},
 		{ NULL, 0, NULL, 0 }
 	};
 
@@ -570,6 +573,9 @@ int main(int argc, char* argv[])
 		case 'n':
 			cursor_type = POINTER_CURSOR_NONE;
 			break;
+		case 'r':
+			reverse_connection = true;
+			break;
 		case 'h':
 			return usage(0);
 		default:
@@ -579,13 +585,21 @@ int main(int argc, char* argv[])
 
 	int n_args = argc - optind;
 
-	if (n_args < 1)
+	if (n_args < 1 && !reverse_connection)
 		return usage(1);
 
-	const char* address = argv[optind];
+	char* address = NULL;
 	int port = 5900;
-	if (n_args >= 2)
-		port = atoi(argv[optind + 1]);
+
+	if (!reverse_connection){
+		address = argv[optind];
+		if (n_args >= 2)
+			port = atoi(argv[optind + 1]);
+	}
+	else if (n_args >= 1){
+		port = atoi(argv[optind]);
+	}
+
 
 	struct aml* aml = aml_new();
 	if (!aml)
@@ -654,7 +668,13 @@ int main(int argc, char* argv[])
 	if (compression >= 0)
 		vnc_client_set_compression_level(vnc, compression);
 
-	if (vnc_client_connect(vnc, address, port) < 0) {
+	if (reverse_connection) {
+		if (vnc_client_reverse_connect(vnc, &address, port) < 0){
+			fprintf(stderr, "Failed to reverse connect\n");
+			goto vnc_setup_failure;
+		}
+	} 
+	else if (vnc_client_connect(vnc, address, port) < 0) {
 		fprintf(stderr, "Failed to connect to server\n");
 		goto vnc_setup_failure;
 	}

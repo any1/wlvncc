@@ -37,6 +37,7 @@ struct vnc_client* vnc_client_create(void);
 void vnc_client_destroy(struct vnc_client* self);
 
 int vnc_client_connect(struct vnc_client* self, const char* address, int port);
+int vnc_client_reverse_connect(struct vnc_client* self, char** address, int port);
 
 int vnc_client_set_pixel_format(struct vnc_client* self,
 		enum wl_shm_format format);
