@@ -22,12 +22,16 @@
 #include <wayland-cursor.h>
 #include <linux/input-event-codes.h>
 
+#include "wlr-input-inhibitor-unstable-v1.h"
+
 #include "pointer.h"
 
 #define STEP_SIZE 15.0
 
 extern struct wl_shm* wl_shm;
 extern struct wl_compositor* wl_compositor;
+extern struct zwlr_input_inhibit_manager_v1 *input_inhibit_manager;
+extern struct zwlr_input_inhibitor_v1 * inhibitor;
 
 static struct wl_cursor_theme* pointer_load_cursor_theme(void)
 {
@@ -69,6 +73,11 @@ void pointer_destroy(struct pointer* self)
 	if (self->cursor_theme)
 		wl_cursor_theme_destroy(self->cursor_theme);
 	wl_surface_destroy(self->cursor_surface);
+	if (inhibitor != NULL){
+		zwlr_input_inhibit_manager_v1_destroy(input_inhibit_manager);
+		inhibitor=NULL;
+	}
+
 	free(self);
 }
 
@@ -162,6 +171,8 @@ static void pointer_enter(void* data, struct wl_pointer* wl_pointer,
 	pointer->serial = serial;
 
 	pointer_update_cursor(pointer);
+	if (inhibitor == NULL)
+		inhibitor = zwlr_input_inhibit_manager_v1_get_inhibitor(input_inhibit_manager);
 }
 
 static void pointer_leave(void* data, struct wl_pointer* wl_pointer,
@@ -174,7 +185,10 @@ static void pointer_leave(void* data, struct wl_pointer* wl_pointer,
 
 	pointer->serial = serial;
 
-	// Do nothing?
+	if (inhibitor != NULL){
+		zwlr_input_inhibitor_v1_destroy(inhibitor);
+		inhibitor = NULL;
+	}
 }
 
 static void pointer_motion(void* data, struct wl_pointer* wl_pointer,
