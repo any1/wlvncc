@@ -29,6 +29,8 @@
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
 
+#include "wlr-input-inhibitor-unstable-v1.h"
+
 #include "pixman.h"
 #include "xdg-shell.h"
 #include "shm.h"
@@ -57,6 +59,8 @@ struct window {
 
 static struct wl_display* wl_display;
 static struct wl_registry* wl_registry;
+struct zwlr_input_inhibit_manager_v1 *input_inhibit_manager;
+struct zwlr_input_inhibitor_v1 * inhibitor;
 struct wl_compositor* wl_compositor = NULL;
 struct wl_shm* wl_shm = NULL;
 static struct xdg_wm_base* xdg_wm_base;
@@ -103,6 +107,8 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 		xdg_wm_base = wl_registry_bind(registry, id, &xdg_wm_base_interface, 1);
 	} else if (strcmp(interface, "wl_shm") == 0) {
 		wl_shm = wl_registry_bind(registry, id, &wl_shm_interface, 1);
+	} else if (strcmp(interface, zwlr_input_inhibit_manager_v1_interface.name) == 0) {
+		input_inhibit_manager = wl_registry_bind(registry, id, &zwlr_input_inhibit_manager_v1_interface, 1);
 	} else if (strcmp(interface, "wl_seat") == 0) {
 		struct wl_seat* wl_seat;
 		wl_seat = wl_registry_bind(registry, id, &wl_seat_interface, 5);
@@ -435,6 +441,23 @@ void on_keyboard_event(struct keyboard_collection* collection,
 
 	// TODO handle multiple symbols
 	xkb_keysym_t symbol = xkb_state_key_get_one_sym(keyboard->state, key);
+
+	if (symbol == XKB_KEY_F12) {
+		if (!is_pressed) {
+			if (inhibitor != NULL){
+				zwlr_input_inhibitor_v1_destroy(inhibitor);
+				inhibitor = NULL;
+			}
+			else {
+				inhibitor = zwlr_input_inhibit_manager_v1_get_inhibitor(input_inhibit_manager);
+			}
+		}
+		return;
+	}
+
+	if (inhibitor == NULL){
+		return;
+	}
 
 	char name[256];
 	xkb_keysym_get_name(symbol, name, sizeof(name));
