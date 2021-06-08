@@ -40,6 +40,8 @@ struct pointer {
 	struct wl_pointer* wl_pointer;
 	struct wl_list link;
 
+	struct seat* seat;
+
 	uint32_t serial;
 	enum pointer_button_mask pressed;
 	wl_fixed_t x, y;
@@ -67,6 +69,6 @@ struct pointer_collection* pointer_collection_new(enum pointer_cursor_type);
 void pointer_collection_destroy(struct pointer_collection*);
 
 int pointer_collection_add_wl_pointer(struct pointer_collection* self,
-		struct wl_pointer* wl_pointer);
+		struct wl_pointer* wl_pointer, struct seat*);
 void pointer_collection_remove_wl_pointer(struct pointer_collection* self,
 		struct wl_pointer* wl_pointer);
