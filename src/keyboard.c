@@ -31,13 +31,15 @@ enum keyboard_led_state {
 	KEYBOARD_LED_CAPS_LOCK = 1 << 2,
 };
 
-struct keyboard* keyboard_new(struct wl_keyboard* wl_keyboard)
+struct keyboard* keyboard_new(struct wl_keyboard* wl_keyboard,
+		struct seat* seat)
 {
 	struct keyboard* self = calloc(1, sizeof(*self));
 	if (!self)
 		return NULL;
 
 	self->wl_keyboard = wl_keyboard;
+	self->seat = seat;
 	self->context = xkb_context_new(0);
 
 	return self;
@@ -230,9 +232,9 @@ static struct wl_keyboard_listener keyboard_listener = {
 };
 
 int keyboard_collection_add_wl_keyboard(struct keyboard_collection* self,
-		struct wl_keyboard* wl_keyboard)
+		struct wl_keyboard* wl_keyboard, struct seat* seat)
 {
-	struct keyboard* keyboard = keyboard_new(wl_keyboard);
+	struct keyboard* keyboard = keyboard_new(wl_keyboard, seat);
 	if (!keyboard)
 		return -1;
 

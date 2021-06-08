@@ -82,6 +82,7 @@ sources = [
 	'src/rfbproto.c',
 	'src/sockets.c',
 	'src/vncviewer.c',
+	'src/inhibitor.c',
 ]
 
 dependencies = [

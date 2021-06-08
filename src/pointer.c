@@ -22,12 +22,14 @@
 #include <wayland-cursor.h>
 #include <linux/input-event-codes.h>
 
+#include "inhibitor.h"
 #include "pointer.h"
 
 #define STEP_SIZE 15.0
 
 extern struct wl_shm* wl_shm;
 extern struct wl_compositor* wl_compositor;
+extern struct shortcuts_inhibitor* inhibitor;
 
 static struct wl_cursor_theme* pointer_load_cursor_theme(void)
 {
@@ -46,12 +48,13 @@ static struct wl_cursor_theme* pointer_load_cursor_theme(void)
 }
 
 struct pointer* pointer_new(struct wl_pointer* wl_pointer,
-		enum pointer_cursor_type cursor_type)
+		enum pointer_cursor_type cursor_type, struct seat *seat)
 {
 	struct pointer* self = calloc(1, sizeof(*self));
 	if (!self)
 		return NULL;
 
+	self->seat = seat;
 	self->wl_pointer = wl_pointer;
 	self->cursor_type = cursor_type;
 
@@ -69,6 +72,7 @@ void pointer_destroy(struct pointer* self)
 	if (self->cursor_theme)
 		wl_cursor_theme_destroy(self->cursor_theme);
 	wl_surface_destroy(self->cursor_surface);
+	inhibitor_destroy(inhibitor);
 	free(self);
 }
 
@@ -162,6 +166,7 @@ static void pointer_enter(void* data, struct wl_pointer* wl_pointer,
 	pointer->serial = serial;
 
 	pointer_update_cursor(pointer);
+	inhibitor_inhibit(inhibitor, pointer->seat);
 }
 
 static void pointer_leave(void* data, struct wl_pointer* wl_pointer,
@@ -173,8 +178,7 @@ static void pointer_leave(void* data, struct wl_pointer* wl_pointer,
 	assert(pointer);
 
 	pointer->serial = serial;
-
-	// Do nothing?
+	inhibitor_release(inhibitor, pointer->seat);
 }
 
 static void pointer_motion(void* data, struct wl_pointer* wl_pointer,
@@ -297,9 +301,9 @@ static struct wl_pointer_listener pointer_listener = {
 };
 
 int pointer_collection_add_wl_pointer(struct pointer_collection* self,
-		struct wl_pointer* wl_pointer)
+		struct wl_pointer* wl_pointer, struct seat* seat)
 {
-	struct pointer* pointer = pointer_new(wl_pointer, self->cursor_type);
+	struct pointer* pointer = pointer_new(wl_pointer, self->cursor_type, seat);
 	if (!pointer)
 		return -1;
 

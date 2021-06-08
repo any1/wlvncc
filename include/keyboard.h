@@ -30,6 +30,8 @@ struct keyboard {
 	struct wl_keyboard* wl_keyboard;
 	struct wl_list link;
 
+	struct seat* seat;
+
 	struct xkb_context* context;
 	struct xkb_keymap* keymap;
 	struct xkb_state* state;
@@ -51,6 +53,6 @@ struct keyboard_collection* keyboard_collection_new(void);
 void keyboard_collection_destroy(struct keyboard_collection*);
 
 int keyboard_collection_add_wl_keyboard(struct keyboard_collection* self,
-		struct wl_keyboard* wl_keyboard);
+		struct wl_keyboard* wl_keyboard, struct seat* seat);
 void keyboard_collection_remove_wl_keyboard(struct keyboard_collection* self,
 		struct wl_keyboard* wl_keyboard);
