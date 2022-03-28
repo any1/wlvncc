@@ -44,6 +44,7 @@ struct buffer {
 	struct wl_buffer* wl_buffer;
 	void* pixels;
 	bool is_attached;
+	struct pixman_region16 damage;
 };
 
 struct window {
@@ -53,6 +54,8 @@ struct window {
 
 	struct buffer* front_buffer;
 	struct buffer* back_buffer;
+
+	void* vnc_fb;
 };
 
 static struct wl_display* wl_display;
@@ -154,6 +157,8 @@ static struct buffer* buffer_create(int width, int height, int stride,
 	self->height = height;
 	self->stride = stride;
 	self->format = format;
+
+	pixman_region_init_rect(&self->damage, 0, 0, width, height);
 
 	self->size = height * stride;
 	int fd = shm_alloc_fd(self->size);
@@ -283,21 +288,48 @@ static void window_attach(struct window* w, int x, int y)
 	wl_surface_attach(w->wl_surface, w->back_buffer->wl_buffer, x, y);
 }
 
-static void window_commit(struct window* w)
+static void window_transfer_pixels(struct window* w)
 {
-	wl_surface_commit(w->wl_surface);
+	struct buffer* buffer = w->back_buffer;
+
+	uint32_t* dst = buffer->pixels;
+	uint32_t* src = w->vnc_fb;
+
+	int stride = buffer->width;
+
+	int n_rects = 0;
+	struct pixman_box16* rects =
+		pixman_region_rectangles(&buffer->damage, &n_rects);
+
+	for (int i = 0; i < n_rects; ++i) {
+		struct pixman_box16* r = &rects[i];
+		int width = r->x2 - r->x1;
+
+		for (int y = r->y1; y < r->y2; ++y) {
+			memcpy(dst + r->x1 + y * stride,
+			       src + r->x1 + y * stride, width * 4);
+		}
+	}
+
+	pixman_region_clear(&buffer->damage);
 }
 
-static void window_swap(struct window* w, struct vnc_client* client)
+static void window_commit(struct window* w)
 {
+	window_transfer_pixels(w);
+	wl_surface_commit(w->wl_surface);
+
 	struct buffer* tmp = w->front_buffer;
 	w->front_buffer = w->back_buffer;
 	w->back_buffer = tmp;
-	vnc_client_set_fb(client, window->back_buffer->pixels);
 }
 
 static void window_damage(struct window* w, int x, int y, int width, int height)
 {
+	pixman_region_union_rect(&w->front_buffer->damage,
+			&w->front_buffer->damage, x, y, width, height);
+	pixman_region_union_rect(&w->back_buffer->damage,
+			&w->back_buffer->damage, x, y, width, height);
 	wl_surface_damage(w->wl_surface, x, y, width, height);
 }
 
@@ -379,6 +411,7 @@ static void window_destroy(struct window* w)
 	if (w->back_buffer)
 		buffer_destroy(w->back_buffer);
 
+	free(w->vnc_fb);
 	xdg_toplevel_destroy(w->xdg_toplevel);
 	xdg_surface_destroy(w->xdg_surface);
 	wl_surface_destroy(w->wl_surface);
@@ -459,7 +492,10 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 	window->back_buffer = buffer_create(width, height, stride,
 			wl_shm_format);
 
-	vnc_client_set_fb(client, window->back_buffer->pixels);
+	window->vnc_fb = malloc(height * stride);
+	assert(window->vnc_fb);
+
+	vnc_client_set_fb(client, window->vnc_fb);
 	return 0;
 }
 
@@ -487,7 +523,6 @@ void on_vnc_client_update_fb(struct vnc_client* client)
 	}
 
 	window_commit(window);
-	window_swap(window, client);
 }
 
 void on_vnc_client_event(void* obj)
