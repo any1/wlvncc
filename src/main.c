@@ -36,6 +36,7 @@
 #include "pointer.h"
 #include "keyboard.h"
 #include "vnc.h"
+#include "pixels.h"
 
 struct buffer {
 	int width, height, stride;
@@ -290,28 +291,45 @@ static void window_attach(struct window* w, int x, int y)
 
 static void window_transfer_pixels(struct window* w)
 {
-	struct buffer* buffer = w->back_buffer;
+	void* src_pixels = w->vnc_fb;
+	int src_width = w->back_buffer->width;
+	int src_height = w->back_buffer->height;
+	int src_stride = w->back_buffer->stride;
 
-	uint32_t* dst = buffer->pixels;
-	uint32_t* src = w->vnc_fb;
+	void* dst_pixels = w->back_buffer->pixels;
+	int dst_width = w->back_buffer->width;
+	int dst_height = w->back_buffer->height;
+	int dst_stride = w->back_buffer->stride;
 
-	int stride = buffer->width;
+	bool ok __attribute__((unused));
 
-	int n_rects = 0;
-	struct pixman_box16* rects =
-		pixman_region_rectangles(&buffer->damage, &n_rects);
+	pixman_format_code_t dst_fmt = 0;
+	ok = wl_shm_to_pixman_fmt(&dst_fmt, w->back_buffer->format);
+	assert(ok);
 
-	for (int i = 0; i < n_rects; ++i) {
-		struct pixman_box16* r = &rects[i];
-		int width = r->x2 - r->x1;
+	pixman_format_code_t src_fmt = 0;
+	ok = wl_shm_to_pixman_fmt(&src_fmt, w->back_buffer->format);
+	assert(ok);
 
-		for (int y = r->y1; y < r->y2; ++y) {
-			memcpy(dst + r->x1 + y * stride,
-			       src + r->x1 + y * stride, width * 4);
-		}
-	}
+	pixman_image_t* dstimg = pixman_image_create_bits_no_clear(
+			dst_fmt, dst_width, dst_height, dst_pixels, dst_stride);
 
-	pixman_region_clear(&buffer->damage);
+	pixman_image_t* srcimg = pixman_image_create_bits_no_clear(src_fmt,
+			src_width, src_height, src_pixels, src_stride);
+
+//	pixman_transform_t xform;
+//	pixman_image_set_transform(srcimg, pxform);
+
+	pixman_image_set_clip_region(dstimg, &w->back_buffer->damage);
+
+	pixman_image_composite(PIXMAN_OP_OVER, srcimg, NULL, dstimg,
+			0, 0,
+			0, 0,
+			0, 0,
+			dst_width, dst_height);
+
+	pixman_image_unref(srcimg);
+	pixman_image_unref(dstimg);
 }
 
 static void window_commit(struct window* w)
