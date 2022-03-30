@@ -69,6 +69,7 @@ sources = [
 	'src/vnc.c',
 	'src/strlcpy.c',
 	'src/evdev-to-qnum.c',
+	'src/pixels.c',
 ]
 
 dependencies = [
