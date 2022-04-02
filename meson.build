@@ -70,6 +70,7 @@ sources = [
 	'src/strlcpy.c',
 	'src/evdev-to-qnum.c',
 	'src/pixels.c',
+	'src/region.c',
 ]
 
 dependencies = [
