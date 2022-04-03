@@ -71,6 +71,7 @@ sources = [
 	'src/evdev-to-qnum.c',
 	'src/pixels.c',
 	'src/region.c',
+	'src/renderer.c',
 ]
 
 dependencies = [

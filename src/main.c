@@ -39,17 +39,8 @@
 #include "vnc.h"
 #include "pixels.h"
 #include "region.h"
-
-struct buffer {
-	int width, height, stride;
-	size_t size;
-	uint32_t format;
-	struct wl_buffer* wl_buffer;
-	void* pixels;
-	bool is_attached;
-	bool please_clean_up;
-	struct pixman_region16 damage;
-};
+#include "buffer.h"
+#include "renderer.h"
 
 struct window {
 	struct wl_surface* wl_surface;
@@ -329,53 +320,20 @@ static void window_calculate_tranform(struct window* w, double* scale,
 
 static void window_transfer_pixels(struct window* w)
 {
-	void* src_pixels = w->vnc_fb;
-	int src_width = vnc_client_get_width(w->vnc);
-	int src_height = vnc_client_get_height(w->vnc);
-	int src_stride = vnc_client_get_stride(w->vnc);
-
-	void* dst_pixels = w->back_buffer->pixels;
-	int dst_width = w->back_buffer->width;
-	int dst_height = w->back_buffer->height;
-	int dst_stride = w->back_buffer->stride;
-
-	bool ok __attribute__((unused));
-
-	pixman_format_code_t dst_fmt = 0;
-	ok = drm_format_to_pixman_fmt(&dst_fmt, w->back_buffer->format);
-	assert(ok);
-
-	pixman_format_code_t src_fmt = 0;
-	ok = drm_format_to_pixman_fmt(&src_fmt, w->back_buffer->format);
-	assert(ok);
-
-	pixman_image_t* dstimg = pixman_image_create_bits_no_clear(
-			dst_fmt, dst_width, dst_height, dst_pixels, dst_stride);
-
-	pixman_image_t* srcimg = pixman_image_create_bits_no_clear(src_fmt,
-			src_width, src_height, src_pixels, src_stride);
-
 	double scale;
 	int x_pos, y_pos;
 	window_calculate_tranform(w, &scale, &x_pos, &y_pos);
-	pixman_fixed_t src_scale = pixman_double_to_fixed(1.0 / scale);
 
-	pixman_transform_t xform;
-	pixman_transform_init_scale(&xform, src_scale, src_scale);
-	pixman_image_set_transform(srcimg, &xform);
+	struct image image = {
+		.pixels = w->vnc_fb,
+		.width = vnc_client_get_width(w->vnc),
+		.height = vnc_client_get_height(w->vnc),
+		.stride = vnc_client_get_stride(w->vnc),
+		// TODO: Get the format from the vnc module
+		.format = w->back_buffer->format,
+	};
 
-	pixman_image_set_clip_region(dstimg, &w->back_buffer->damage);
-
-	pixman_image_composite(PIXMAN_OP_OVER, srcimg, NULL, dstimg,
-			0, 0,
-			0, 0,
-			x_pos, y_pos,
-			dst_width, dst_height);
-
-	pixman_image_unref(srcimg);
-	pixman_image_unref(dstimg);
-
-	pixman_region_clear(&w->back_buffer->damage);
+	render_image(w->back_buffer, &image, scale, x_pos, y_pos);
 }
 
 static void window_commit(struct window* w)
