@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 Andri Yngvason
+ * Copyright (c) 2020 - 2022 Andri Yngvason
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,6 +28,7 @@
 #include <aml.h>
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
+#include <libdrm/drm_fourcc.h>
 
 #include "pixman.h"
 #include "xdg-shell.h"
@@ -42,7 +43,7 @@
 struct buffer {
 	int width, height, stride;
 	size_t size;
-	enum wl_shm_format format;
+	uint32_t format;
 	struct wl_buffer* wl_buffer;
 	void* pixels;
 	bool is_attached;
@@ -71,8 +72,7 @@ static struct wl_list seats;
 struct pointer_collection* pointers;
 struct keyboard_collection* keyboards;
 
-static enum wl_shm_format wl_shm_format;
-static bool have_format = false;
+static uint32_t shm_format = DRM_FORMAT_INVALID;
 
 static bool do_run = true;
 
@@ -196,7 +196,7 @@ static struct buffer* buffer_create(int width, int height, int stride,
 		goto pool_failure;
 
 	self->wl_buffer = wl_shm_pool_create_buffer(pool, 0, width, height,
-			stride, format);
+			stride, drm_format_to_wl_shm(format));
 	wl_shm_pool_destroy(pool);
 	if (!self->wl_buffer)
 		goto shm_failure;
@@ -217,25 +217,26 @@ failure:
 	return NULL;
 }
 
-static void shm_format(void* data, struct wl_shm* shm, uint32_t format)
+static void handle_shm_format(void* data, struct wl_shm* shm, uint32_t format)
 {
 	(void)data;
 	(void)wl_shm;
 
-	if (have_format)
+	if (shm_format != DRM_FORMAT_INVALID)
 		return;
 
-	switch (format) {
-	case WL_SHM_FORMAT_XRGB8888:
-		wl_shm_format = format;
-		have_format = true;
+	uint32_t drm_format = drm_format_from_wl_shm(format);
+
+	switch (drm_format) {
+	case DRM_FORMAT_XRGB8888:
+		shm_format = drm_format;
 	}
 
 	// TODO: Support more formats
 }
 
 static const struct wl_shm_listener shm_listener = {
-	.format = shm_format,
+	.format = handle_shm_format,
 };
 
 static void xdg_wm_base_ping(void* data, struct xdg_wm_base* shell,
@@ -341,11 +342,11 @@ static void window_transfer_pixels(struct window* w)
 	bool ok __attribute__((unused));
 
 	pixman_format_code_t dst_fmt = 0;
-	ok = wl_shm_to_pixman_fmt(&dst_fmt, w->back_buffer->format);
+	ok = drm_format_to_pixman_fmt(&dst_fmt, w->back_buffer->format);
 	assert(ok);
 
 	pixman_format_code_t src_fmt = 0;
-	ok = wl_shm_to_pixman_fmt(&src_fmt, w->back_buffer->format);
+	ok = drm_format_to_pixman_fmt(&src_fmt, w->back_buffer->format);
 	assert(ok);
 
 	pixman_image_t* dstimg = pixman_image_create_bits_no_clear(
@@ -423,8 +424,8 @@ static void window_resize(struct window* w, int width, int height)
 	buffer_destroy(w->front_buffer);
 	buffer_destroy(w->back_buffer);
 
-	w->front_buffer = buffer_create(width, height, 4 * width, wl_shm_format);
-	w->back_buffer = buffer_create(width, height, 4 * width, wl_shm_format);
+	w->front_buffer = buffer_create(width, height, 4 * width, shm_format);
+	w->back_buffer = buffer_create(width, height, 4 * width, shm_format);
 }
 
 static void xdg_toplevel_configure(void* data, struct xdg_toplevel* toplevel,
@@ -767,7 +768,7 @@ int main(int argc, char* argv[])
 	vnc->alloc_fb = on_vnc_client_alloc_fb;
 	vnc->update_fb = on_vnc_client_update_fb;
 
-	if (vnc_client_set_pixel_format(vnc, wl_shm_format) < 0) {
+	if (vnc_client_set_pixel_format(vnc, shm_format) < 0) {
 		fprintf(stderr, "Unsupported pixel format\n");
 		goto vnc_setup_failure;
 	}

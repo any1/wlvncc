@@ -1,8 +1,49 @@
+/*
+ * Copyright (c) 2022 Andri Yngvason
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+ * REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+ * INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+ * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+ * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+ * PERFORMANCE OF THIS SOFTWARE.
+ */
+
+#include <libdrm/drm_fourcc.h>
 #include <wayland-client.h>
 #include <pixman.h>
 #include <stdbool.h>
+#include <assert.h>
 
-bool wl_shm_to_pixman_fmt(pixman_format_code_t* dst, enum wl_shm_format src)
+enum wl_shm_format drm_format_to_wl_shm(uint32_t in)
+{
+	assert(!(in & DRM_FORMAT_BIG_ENDIAN));
+
+	switch (in) {
+	case DRM_FORMAT_ARGB8888: return WL_SHM_FORMAT_ARGB8888;
+	case DRM_FORMAT_XRGB8888: return WL_SHM_FORMAT_XRGB8888;
+	}
+
+	return in;
+}
+
+uint32_t drm_format_from_wl_shm(enum wl_shm_format in)
+{
+	switch (in) {
+	case WL_SHM_FORMAT_ARGB8888: return DRM_FORMAT_ARGB8888;
+	case WL_SHM_FORMAT_XRGB8888: return DRM_FORMAT_XRGB8888;
+	default:;
+	}
+
+	return in;
+}
+
+bool drm_format_to_pixman_fmt(pixman_format_code_t* dst, uint32_t src)
 {
 #define LOWER_R r
 #define LOWER_G g
@@ -15,7 +56,7 @@ bool wl_shm_to_pixman_fmt(pixman_format_code_t* dst, enum wl_shm_format src)
 #define CONCAT_(a, b) a ## b
 #define CONCAT(a, b) CONCAT_(a, b)
 
-#define FMT_WL_SHM(x, y, z, v, a, b, c, d) WL_SHM_FORMAT_##x##y##z##v##a##b##c##d
+#define FMT_DRM(x, y, z, v, a, b, c, d) DRM_FORMAT_##x##y##z##v##a##b##c##d
 
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #define FMT_PIXMAN(x, y, z, v, a, b, c, d) \
@@ -29,7 +70,7 @@ bool wl_shm_to_pixman_fmt(pixman_format_code_t* dst, enum wl_shm_format src)
 
 	switch (src) {
 #define X(...) \
-	case FMT_WL_SHM(__VA_ARGS__): *dst = FMT_PIXMAN(__VA_ARGS__); break
+	case FMT_DRM(__VA_ARGS__): *dst = FMT_PIXMAN(__VA_ARGS__); break
 
 	/* 32 bits */
 	X(A,R,G,B,8,8,8,8);

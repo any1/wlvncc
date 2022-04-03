@@ -21,7 +21,7 @@
 #include <stdbool.h>
 #include <pixman.h>
 #include <rfb/rfbclient.h>
-#include <wayland-client.h>
+#include <libdrm/drm_fourcc.h>
 
 #include "vnc.h"
 
@@ -139,15 +139,14 @@ int vnc_client_connect(struct vnc_client* self, const char* address, int port)
 	return 0;
 }
 
-int vnc_client_set_pixel_format(struct vnc_client* self,
-		enum wl_shm_format format)
+int vnc_client_set_pixel_format(struct vnc_client* self, uint32_t format)
 {
 	rfbPixelFormat* dst = &self->client->format;
 	int bpp = -1;
 
 	switch (format) {
-	case WL_SHM_FORMAT_ARGB8888:
-	case WL_SHM_FORMAT_XRGB8888:
+	case DRM_FORMAT_ARGB8888:
+	case DRM_FORMAT_XRGB8888:
 		dst->redShift = 16;
 		dst->greenShift = 8;
 		dst->blueShift = 0;

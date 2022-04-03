@@ -38,8 +38,7 @@ void vnc_client_destroy(struct vnc_client* self);
 
 int vnc_client_connect(struct vnc_client* self, const char* address, int port);
 
-int vnc_client_set_pixel_format(struct vnc_client* self,
-		enum wl_shm_format format);
+int vnc_client_set_pixel_format(struct vnc_client* self, uint32_t format);
 
 int vnc_client_get_fd(const struct vnc_client* self);
 int vnc_client_get_width(const struct vnc_client* self);
