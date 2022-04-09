@@ -111,6 +111,8 @@ struct buffer* buffer_create_dmabuf(int width, int height, uint32_t format)
 	self->height = height;
 	self->format = format;
 
+	pixman_region_init_rect(&self->damage, 0, 0, width, height);
+
 	self->bo = gbm_bo_create(gbm_device, width, height, format,
 			GBM_BO_USE_RENDERING);
 	if (!self->bo)
