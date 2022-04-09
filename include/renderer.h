@@ -24,6 +24,7 @@ struct image {
 	int width, height, stride;
 	uint32_t format;
 	void* pixels;	
+	struct pixman_region16* damage;
 };
 
 void render_image(struct buffer* dst, const struct image* src, double scale,

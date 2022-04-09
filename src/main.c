@@ -288,6 +288,7 @@ static void window_transfer_pixels(struct window* w)
 		.stride = vnc_client_get_stride(w->vnc),
 		// TODO: Get the format from the vnc module
 		.format = w->back_buffer->format,
+		.damage = &w->vnc->damage,
 	};
 
 	if (have_egl)
