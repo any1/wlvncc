@@ -35,6 +35,8 @@ wayland_client = dependency('wayland-client')
 wayland_cursor = dependency('wayland-cursor')
 drm = dependency('libdrm')
 gbm = dependency('gbm')
+egl = dependency('egl')
+glesv2 = dependency('glesv2')
 
 libvncserver_opt = cmake.subproject_options()
 libvncserver_opt.add_cmake_defines({
@@ -74,6 +76,7 @@ sources = [
 	'src/pixels.c',
 	'src/region.c',
 	'src/renderer.c',
+	'src/renderer-egl.c',
 	'src/buffer.c',
 ]
 
@@ -87,6 +90,8 @@ dependencies = [
 	wayland_cursor,
 	drm,
 	gbm,
+	egl,
+	glesv2,
 	libvncclient,
 	client_protos,
 ]

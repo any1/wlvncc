@@ -43,6 +43,7 @@
 #include "region.h"
 #include "buffer.h"
 #include "renderer.h"
+#include "renderer-egl.h"
 #include "linux-dmabuf-unstable-v1.h"
 
 struct window {
@@ -68,6 +69,8 @@ static struct wl_list seats;
 struct pointer_collection* pointers;
 struct keyboard_collection* keyboards;
 static int drm_fd = -1;
+
+static bool have_egl = false;
 
 static uint32_t shm_format = DRM_FORMAT_INVALID;
 static uint32_t dmabuf_format = DRM_FORMAT_INVALID;
@@ -186,10 +189,6 @@ static void handle_dmabuf_format(void *data,
 	case DRM_FORMAT_ARGB8888:
 	case DRM_FORMAT_XBGR8888:
 	case DRM_FORMAT_ABGR8888:
-	case DRM_FORMAT_RGBX8888:
-	case DRM_FORMAT_RGBA8888:
-	case DRM_FORMAT_BGRX8888:
-	case DRM_FORMAT_BGRA8888:
 		dmabuf_format = format;
 	}
 }
@@ -291,7 +290,10 @@ static void window_transfer_pixels(struct window* w)
 		.format = w->back_buffer->format,
 	};
 
-	render_image(w->back_buffer, &image, scale, x_pos, y_pos);
+	if (have_egl)
+		render_image_egl(w->back_buffer, &image, scale, x_pos, y_pos);
+	else
+		render_image(w->back_buffer, &image, scale, x_pos, y_pos);
 }
 
 static void window_commit(struct window* w)
@@ -340,8 +342,13 @@ static void window_resize(struct window* w, int width, int height)
 	buffer_destroy(w->front_buffer);
 	buffer_destroy(w->back_buffer);
 
-	w->front_buffer = buffer_create_shm(width, height, 4 * width, shm_format);
-	w->back_buffer = buffer_create_shm(width, height, 4 * width, shm_format);
+	w->front_buffer = have_egl ?
+		buffer_create_dmabuf(width, height, dmabuf_format) :
+		buffer_create_shm(width, height, 4 * width, shm_format);
+
+	w->back_buffer = have_egl ?
+		buffer_create_dmabuf(width, height, dmabuf_format) :
+		buffer_create_shm(width, height, 4 * width, shm_format);
 }
 
 static void xdg_toplevel_configure(void* data, struct xdg_toplevel* toplevel,
@@ -598,6 +605,45 @@ static int init_gbm_device(void)
 	return 0;
 }
 
+static int init_egl_renderer(void)
+{
+	if (!zwp_linux_dmabuf_v1) {
+		printf("Missing linux-dmabuf-unstable-v1. Using software rendering.\n");
+		return -1;
+	}
+
+	zwp_linux_dmabuf_v1_add_listener(zwp_linux_dmabuf_v1,
+			&dmabuf_listener, NULL);
+	wl_display_roundtrip(wl_display);
+
+	if (dmabuf_format == DRM_FORMAT_INVALID) {
+		printf("No supported dmabuf pixel format found. Using software rendering.\n");
+		goto failure;
+	}
+
+	if (init_gbm_device() < 0) {
+		printf("Failed to find render node. Using software rendering.\n");
+		goto failure;
+	}
+
+	if (egl_init() < 0) {
+		printf("Failed initialise EGL. Using software rendering.\n");
+		goto failure;
+	}
+
+	printf("Using EGL for rendering...\n");
+
+	return 0;
+
+failure:
+	if (zwp_linux_dmabuf_v1) {
+		zwp_linux_dmabuf_v1_destroy(zwp_linux_dmabuf_v1);
+		zwp_linux_dmabuf_v1 = NULL;
+	}
+
+	return -1;
+}
+
 static int usage(int r)
 {
 	fprintf(r ? stderr : stdout, "\
@@ -716,21 +762,12 @@ int main(int argc, char* argv[])
 	assert(xdg_wm_base);
 
 	wl_shm_add_listener(wl_shm, &shm_listener, NULL);
-	wl_display_roundtrip(wl_display);
 
 	xdg_wm_base_add_listener(xdg_wm_base, &xdg_wm_base_listener, NULL);
+
+	have_egl = init_egl_renderer() == 0;
 	wl_display_roundtrip(wl_display);
-
-	if (zwp_linux_dmabuf_v1) {
-		zwp_linux_dmabuf_v1_add_listener(zwp_linux_dmabuf_v1,
-				&dmabuf_listener, NULL);
-		wl_display_roundtrip(wl_display);
-
-		if (dmabuf_format == DRM_FORMAT_INVALID || init_gbm_device() < 0) {
-			zwp_linux_dmabuf_v1_destroy(zwp_linux_dmabuf_v1);
-			zwp_linux_dmabuf_v1 = NULL;
-		}
-	}
+	wl_display_roundtrip(wl_display);
 
 	struct vnc_client* vnc = vnc_client_create();
 	if (!vnc)
@@ -782,6 +819,7 @@ vnc_failure:
 	wl_compositor_destroy(wl_compositor);
 	wl_shm_destroy(wl_shm);
 	xdg_wm_base_destroy(xdg_wm_base);
+	egl_finish();
 	if (zwp_linux_dmabuf_v1)
 		zwp_linux_dmabuf_v1_destroy(zwp_linux_dmabuf_v1);
 	if (gbm_device)
