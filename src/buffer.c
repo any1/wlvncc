@@ -17,12 +17,18 @@
 #include "buffer.h"
 #include "shm.h"
 #include "pixels.h"
+#include "linux-dmabuf-unstable-v1.h"
 
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <wayland-client.h>
+#include <gbm.h>
+#include <assert.h>
 
-extern struct wl_shm* wl_shm; /* Origin: main.c */
+/* Origin: main.c */
+extern struct wl_shm* wl_shm;
+extern struct gbm_device* gbm_device;
+extern struct zwp_linux_dmabuf_v1* zwp_linux_dmabuf_v1;
 
 static void buffer_release(void* data, struct wl_buffer* wl_buffer)
 {
@@ -39,12 +45,16 @@ static const struct wl_buffer_listener buffer_listener = {
 	.release = buffer_release,
 };
 
-struct buffer* buffer_create(int width, int height, int stride, uint32_t format)
+struct buffer* buffer_create_shm(int width, int height, int stride,
+		uint32_t format)
 {
+	assert(wl_shm);
+
 	struct buffer* self = calloc(1, sizeof(*self));
 	if (!self)
 		return NULL;
 
+	self->type = BUFFER_WL_SHM;
 	self->width = width;
 	self->height = height;
 	self->stride = stride;
@@ -88,6 +98,60 @@ failure:
 	return NULL;
 }
 
+struct buffer* buffer_create_dmabuf(int width, int height, uint32_t format)
+{
+	assert(gbm_device && zwp_linux_dmabuf_v1);
+
+	struct buffer* self = calloc(1, sizeof(*self));
+	if (!self)
+		return NULL;
+
+	self->type = BUFFER_DMABUF;
+	self->width = width;
+	self->height = height;
+	self->format = format;
+
+	self->bo = gbm_bo_create(gbm_device, width, height, format,
+			GBM_BO_USE_RENDERING);
+	if (!self->bo)
+		goto bo_failure;
+
+	struct zwp_linux_buffer_params_v1* params;
+	params = zwp_linux_dmabuf_v1_create_params(zwp_linux_dmabuf_v1);
+	if (!params)
+		goto params_failure;
+
+	uint32_t offset = gbm_bo_get_offset(self->bo, 0);
+	uint32_t stride = gbm_bo_get_stride(self->bo);
+	uint64_t mod = gbm_bo_get_modifier(self->bo);
+	int fd = gbm_bo_get_fd(self->bo);
+	if (fd < 0)
+		goto fd_failure;
+
+	zwp_linux_buffer_params_v1_add(params, fd, 0, offset, stride,
+			mod >> 32, mod & 0xffffffff);
+	self->wl_buffer = zwp_linux_buffer_params_v1_create_immed(params, width,
+			height, format, /* flags */ 0);
+	zwp_linux_buffer_params_v1_destroy(params);
+	close(fd);
+
+	if (!self->wl_buffer)
+		goto buffer_failure;
+
+	wl_buffer_add_listener(self->wl_buffer, &buffer_listener, self);
+
+	return self;
+
+buffer_failure:
+fd_failure:
+	zwp_linux_buffer_params_v1_destroy(params);
+params_failure:
+	gbm_bo_destroy(self->bo);
+bo_failure:
+	free(self);
+	return NULL;
+}
+
 void buffer_destroy(struct buffer* self)
 {
 	if (!self)
@@ -97,6 +161,18 @@ void buffer_destroy(struct buffer* self)
 		self->please_clean_up = true;
 
 	wl_buffer_destroy(self->wl_buffer);
-	munmap(self->pixels, self->size);
+
+	switch (self->type) {
+	case BUFFER_WL_SHM:
+		munmap(self->pixels, self->size);
+		break;
+	case BUFFER_DMABUF:
+		gbm_bo_destroy(self->bo);
+		break;
+	default:
+		abort();
+		break;
+	}
+
 	free(self);
 }

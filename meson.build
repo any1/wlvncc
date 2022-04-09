@@ -33,6 +33,8 @@ xkbcommon = dependency('xkbcommon')
 pixman = dependency('pixman-1')
 wayland_client = dependency('wayland-client')
 wayland_cursor = dependency('wayland-cursor')
+drm = dependency('libdrm')
+gbm = dependency('gbm')
 
 libvncserver_opt = cmake.subproject_options()
 libvncserver_opt.add_cmake_defines({
@@ -83,6 +85,8 @@ dependencies = [
 	aml,
 	wayland_client,
 	wayland_cursor,
+	drm,
+	gbm,
 	libvncclient,
 	client_protos,
 ]

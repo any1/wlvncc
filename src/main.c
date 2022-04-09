@@ -27,7 +27,10 @@
 #include <aml.h>
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
-#include <libdrm/drm_fourcc.h>
+#include <drm_fourcc.h>
+#include <gbm.h>
+#include <xf86drm.h>
+#include <fcntl.h>
 
 #include "pixman.h"
 #include "xdg-shell.h"
@@ -40,6 +43,7 @@
 #include "region.h"
 #include "buffer.h"
 #include "renderer.h"
+#include "linux-dmabuf-unstable-v1.h"
 
 struct window {
 	struct wl_surface* wl_surface;
@@ -57,12 +61,16 @@ static struct wl_display* wl_display;
 static struct wl_registry* wl_registry;
 struct wl_compositor* wl_compositor = NULL;
 struct wl_shm* wl_shm = NULL;
+struct zwp_linux_dmabuf_v1* zwp_linux_dmabuf_v1 = NULL;
+struct gbm_device* gbm_device = NULL;
 static struct xdg_wm_base* xdg_wm_base;
 static struct wl_list seats;
 struct pointer_collection* pointers;
 struct keyboard_collection* keyboards;
+static int drm_fd = -1;
 
 static uint32_t shm_format = DRM_FORMAT_INVALID;
+static uint32_t dmabuf_format = DRM_FORMAT_INVALID;
 
 static bool do_run = true;
 
@@ -100,6 +108,9 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 		xdg_wm_base = wl_registry_bind(registry, id, &xdg_wm_base_interface, 1);
 	} else if (strcmp(interface, "wl_shm") == 0) {
 		wl_shm = wl_registry_bind(registry, id, &wl_shm_interface, 1);
+	} else if (strcmp(interface, "zwp_linux_dmabuf_v1") == 0) {
+		zwp_linux_dmabuf_v1 = wl_registry_bind(registry, id,
+				&zwp_linux_dmabuf_v1_interface, 2);
 	} else if (strcmp(interface, "wl_seat") == 0) {
 		struct wl_seat* wl_seat;
 		wl_seat = wl_registry_bind(registry, id, &wl_seat_interface, 5);
@@ -159,6 +170,32 @@ static void xdg_wm_base_ping(void* data, struct xdg_wm_base* shell,
 
 static const struct xdg_wm_base_listener xdg_wm_base_listener = {
 	.ping = xdg_wm_base_ping,
+};
+
+static void handle_dmabuf_format(void *data,
+		struct zwp_linux_dmabuf_v1 *zwp_linux_dmabuf, uint32_t format)
+{
+	(void)data;
+	(void)zwp_linux_dmabuf;
+
+	if (dmabuf_format != DRM_FORMAT_INVALID)
+		return;
+
+	switch (format) {
+	case DRM_FORMAT_XRGB8888:
+	case DRM_FORMAT_ARGB8888:
+	case DRM_FORMAT_XBGR8888:
+	case DRM_FORMAT_ABGR8888:
+	case DRM_FORMAT_RGBX8888:
+	case DRM_FORMAT_RGBA8888:
+	case DRM_FORMAT_BGRX8888:
+	case DRM_FORMAT_BGRA8888:
+		dmabuf_format = format;
+	}
+}
+
+static const struct zwp_linux_dmabuf_v1_listener dmabuf_listener = {
+	.format = handle_dmabuf_format,
 };
 
 void on_wayland_event(void* obj)
@@ -303,8 +340,8 @@ static void window_resize(struct window* w, int width, int height)
 	buffer_destroy(w->front_buffer);
 	buffer_destroy(w->back_buffer);
 
-	w->front_buffer = buffer_create(width, height, 4 * width, shm_format);
-	w->back_buffer = buffer_create(width, height, 4 * width, shm_format);
+	w->front_buffer = buffer_create_shm(width, height, 4 * width, shm_format);
+	w->back_buffer = buffer_create_shm(width, height, 4 * width, shm_format);
 }
 
 static void xdg_toplevel_configure(void* data, struct xdg_toplevel* toplevel,
@@ -518,6 +555,49 @@ int init_vnc_client_handler(struct vnc_client* client)
 	return rc;
 }
 
+static int find_render_node(char *node, size_t maxlen) {
+	bool r = -1;
+	drmDevice *devices[64];
+
+	int n = drmGetDevices2(0, devices, sizeof(devices) / sizeof(devices[0]));
+	for (int i = 0; i < n; ++i) {
+		drmDevice *dev = devices[i];
+		if (!(dev->available_nodes & (1 << DRM_NODE_RENDER)))
+			continue;
+
+		strncpy(node, dev->nodes[DRM_NODE_RENDER], maxlen);
+		node[maxlen - 1] = '\0';
+		r = 0;
+		break;
+	}
+
+	drmFreeDevices(devices, n);
+	return r;
+}
+
+static int init_gbm_device(void)
+{
+	int rc;
+
+	char render_node[256];
+	rc = find_render_node(render_node, sizeof(render_node));
+	if (rc < 0)
+		return -1;
+
+	drm_fd = open(render_node, O_RDWR);
+	if (drm_fd < 0)
+		return 1;
+
+	gbm_device = gbm_create_device(drm_fd);
+	if (!gbm_device) {
+		close(drm_fd);
+		drm_fd = -1;
+		return -1;
+	}
+
+	return 0;
+}
+
 static int usage(int r)
 {
 	fprintf(r ? stderr : stdout, "\
@@ -636,9 +716,21 @@ int main(int argc, char* argv[])
 	assert(xdg_wm_base);
 
 	wl_shm_add_listener(wl_shm, &shm_listener, NULL);
+	wl_display_roundtrip(wl_display);
+
 	xdg_wm_base_add_listener(xdg_wm_base, &xdg_wm_base_listener, NULL);
 	wl_display_roundtrip(wl_display);
-	wl_display_roundtrip(wl_display);
+
+	if (zwp_linux_dmabuf_v1) {
+		zwp_linux_dmabuf_v1_add_listener(zwp_linux_dmabuf_v1,
+				&dmabuf_listener, NULL);
+		wl_display_roundtrip(wl_display);
+
+		if (dmabuf_format == DRM_FORMAT_INVALID || init_gbm_device() < 0) {
+			zwp_linux_dmabuf_v1_destroy(zwp_linux_dmabuf_v1);
+			zwp_linux_dmabuf_v1 = NULL;
+		}
+	}
 
 	struct vnc_client* vnc = vnc_client_create();
 	if (!vnc)
@@ -690,6 +782,12 @@ vnc_failure:
 	wl_compositor_destroy(wl_compositor);
 	wl_shm_destroy(wl_shm);
 	xdg_wm_base_destroy(xdg_wm_base);
+	if (zwp_linux_dmabuf_v1)
+		zwp_linux_dmabuf_v1_destroy(zwp_linux_dmabuf_v1);
+	if (gbm_device)
+		gbm_device_destroy(gbm_device);
+	if (drm_fd >= 0)
+		close(drm_fd);
 
 	wl_registry_destroy(wl_registry);
 registry_failure:

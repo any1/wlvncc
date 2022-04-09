@@ -22,18 +22,33 @@
 #include <pixman.h>
 
 struct wl_buffer;
+struct gbm_bo;
+
+enum buffer_type {
+	BUFFER_UNSPEC = 0,
+	BUFFER_WL_SHM,
+	BUFFER_DMABUF,
+};
 
 struct buffer {
-	int width, height, stride;
+	enum buffer_type type;
+
+	int width, height;
 	size_t size;
 	uint32_t format;
 	struct wl_buffer* wl_buffer;
-	void* pixels;
 	bool is_attached;
 	bool please_clean_up;
 	struct pixman_region16 damage;
+
+	// wl_shm:
+	void* pixels;
+	int stride;
+
+	// dmabuf:
+	struct gbm_bo* bo;
 };
 
-struct buffer* buffer_create(int width, int height, int stride, uint32_t format);
+struct buffer* buffer_create_shm(int width, int height, int stride, uint32_t format);
+struct buffer* buffer_create_dmabuf(int width, int height, uint32_t format);
 void buffer_destroy(struct buffer* self);
-
