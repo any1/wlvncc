@@ -64,6 +64,7 @@ static EGLDisplay egl_display = EGL_NO_DISPLAY;
 static EGLContext egl_context = EGL_NO_CONTEXT;
 
 static GLuint shader_program = 0;
+static GLuint texture = 0;
 
 static const char *vertex_shader_src =
 "attribute vec2 pos;\n"
@@ -195,6 +196,8 @@ failure:
 
 void egl_finish(void)
 {
+	if (texture)
+		glDeleteTextures(1, &texture);
 	if (shader_program)
 		glDeleteProgram(shader_program);
 	eglDestroyContext(egl_display, egl_context);
@@ -317,10 +320,32 @@ GLenum gl_format_from_drm(uint32_t format)
 	return 0;
 }
 
-/* Possible improvements:
- * - Hold onto imported textures and only import damaged areas
- * - Only render the damaged areas on the buffer
- */
+void import_image_with_damage(const struct image* src,
+		struct pixman_region16* damage)
+{
+	GLenum fmt = gl_format_from_drm(src->format);
+
+	int n_rects = 0;
+	struct pixman_box16* rects =
+		pixman_region_rectangles(damage, &n_rects);
+
+	for (int i = 0; i < n_rects; ++i) {
+		int x = rects[i].x1;
+		int y = rects[i].y1;
+		int width = rects[i].x2 - x;
+		int height = rects[i].y2 - y;
+
+		glPixelStorei(GL_UNPACK_SKIP_PIXELS_EXT, x);
+		glPixelStorei(GL_UNPACK_SKIP_ROWS_EXT, y);
+
+		glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, fmt,
+				GL_UNSIGNED_BYTE, src->pixels);
+	}
+
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS_EXT, 0);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS_EXT, 0);
+}
+
 void render_image_egl(struct buffer* dst, const struct image* src,
 		double scale, int x_pos, int y_pos)
 {
@@ -332,9 +357,12 @@ void render_image_egl(struct buffer* dst, const struct image* src,
 	glClearColor(0.0, 0.0, 0.0, 1.0);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	GLuint tex = 0;
-	glGenTextures(1, &tex);
-	glBindTexture(GL_TEXTURE_2D, tex);
+	bool is_new_texture = !texture;
+
+	if (!texture)
+		glGenTextures(1, &texture);
+
+	glBindTexture(GL_TEXTURE_2D, texture);
 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -343,9 +371,14 @@ void render_image_egl(struct buffer* dst, const struct image* src,
 
 	glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, src->stride / 4);
 
-	GLenum fmt = gl_format_from_drm(src->format);
-	glTexImage2D(GL_TEXTURE_2D, 0, fmt, src->width, src->height, 0,
-			fmt, GL_UNSIGNED_BYTE, src->pixels);
+	if (is_new_texture) {
+		GLenum fmt = gl_format_from_drm(src->format);
+		glTexImage2D(GL_TEXTURE_2D, 0, fmt, src->width, src->height, 0,
+				fmt, GL_UNSIGNED_BYTE, src->pixels);
+	} else {
+		import_image_with_damage(src,
+				(struct pixman_region16*)src->damage);
+	}
 
 	glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, 0);
 
@@ -355,11 +388,17 @@ void render_image_egl(struct buffer* dst, const struct image* src,
 
 	glUseProgram(shader_program);
 
+	struct pixman_box16* ext = pixman_region_extents(&dst->damage);
+	glScissor(ext->x1, ext->y1, ext->x2 - ext->x1, ext->y2 - ext->y1);
+	glEnable(GL_SCISSOR_TEST);
+
 	gl_draw();
+
+	glDisable(GL_SCISSOR_TEST);
+
 	glFinish();
 
 	glBindTexture(GL_TEXTURE_2D, 0);
-	glDeleteTextures(1, &tex);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
