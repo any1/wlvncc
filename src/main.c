@@ -658,6 +658,7 @@ Usage: wlvncc <address> [port]\n\
     -h,--help                Get help.\n\
     -n,--hide-cursor         Hide the client-side cursor.\n\
     -q,--quality             Quality level (0 - 9).\n\
+    -s,--use-sw-renderer     Use software rendering.\n\
 \n\
 ");
 	return r;
@@ -671,7 +672,8 @@ int main(int argc, char* argv[])
 	const char* encodings = NULL;
 	int quality = -1;
 	int compression = -1;
-	static const char* shortopts = "a:q:c:e:hn";
+	static const char* shortopts = "a:q:c:e:hns";
+	bool use_sw_renderer = false;
 
 	static const struct option longopts[] = {
 		{ "app-id", required_argument, NULL, 'a' },
@@ -680,6 +682,7 @@ int main(int argc, char* argv[])
 		{ "help", no_argument, NULL, 'h' },
 		{ "quality", required_argument, NULL, 'q' },
 		{ "hide-cursor", no_argument, NULL, 'n' },
+		{ "use-sw-renderer", no_argument, NULL, 's' },
 		{ NULL, 0, NULL, 0 }
 	};
 
@@ -703,6 +706,9 @@ int main(int argc, char* argv[])
 			break;
 		case 'n':
 			cursor_type = POINTER_CURSOR_NONE;
+			break;
+		case 's':
+			use_sw_renderer = true;
 			break;
 		case 'h':
 			return usage(0);
@@ -766,7 +772,9 @@ int main(int argc, char* argv[])
 
 	xdg_wm_base_add_listener(xdg_wm_base, &xdg_wm_base_listener, NULL);
 
-	have_egl = init_egl_renderer() == 0;
+	if (!use_sw_renderer)
+		have_egl = init_egl_renderer() == 0;
+
 	wl_display_roundtrip(wl_display);
 	wl_display_roundtrip(wl_display);
 
