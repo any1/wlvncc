@@ -162,6 +162,7 @@ void buffer_destroy(struct buffer* self)
 	if (self->is_attached)
 		self->please_clean_up = true;
 
+	pixman_region_fini(&self->damage);
 	wl_buffer_destroy(self->wl_buffer);
 
 	switch (self->type) {
