@@ -72,6 +72,7 @@ sources = [
 	'src/pixels.c',
 	'src/region.c',
 	'src/renderer.c',
+	'src/buffer.c',
 ]
 
 dependencies = [

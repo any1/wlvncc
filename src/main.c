@@ -24,7 +24,6 @@
 #include <errno.h>
 #include <signal.h>
 #include <getopt.h>
-#include <sys/mman.h>
 #include <aml.h>
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
@@ -129,84 +128,6 @@ static const struct wl_registry_listener registry_listener = {
 	.global = registry_add,
 	.global_remove = registry_remove,
 };
-
-static void buffer_destroy(struct buffer* self)
-{
-	if (!self)
-		return;
-
-	if (self->is_attached)
-		self->please_clean_up = true;
-
-	wl_buffer_destroy(self->wl_buffer);
-	munmap(self->pixels, self->size);
-	free(self);
-}
-
-static void buffer_release(void* data, struct wl_buffer* wl_buffer)
-{
-	(void)wl_buffer;
-	struct buffer* self = data;
-	self->is_attached = false;
-
-	if (self->please_clean_up) {
-		buffer_destroy(self);
-	}
-}
-
-static const struct wl_buffer_listener buffer_listener = {
-	.release = buffer_release,
-};
-
-static struct buffer* buffer_create(int width, int height, int stride,
-		enum wl_shm_format format)
-{
-	struct buffer* self = calloc(1, sizeof(*self));
-	if (!self)
-		return NULL;
-
-	self->width = width;
-	self->height = height;
-	self->stride = stride;
-	self->format = format;
-
-	pixman_region_init_rect(&self->damage, 0, 0, width, height);
-
-	self->size = height * stride;
-	int fd = shm_alloc_fd(self->size);
-	if (fd < 0)
-		goto failure;
-
-	self->pixels = mmap(NULL, self->size, PROT_READ | PROT_WRITE,
-			MAP_SHARED, fd, 0);
-	if (!self->pixels)
-		goto mmap_failure;
-
-	struct wl_shm_pool* pool = wl_shm_create_pool(wl_shm, fd, self->size);
-	if (!pool)
-		goto pool_failure;
-
-	self->wl_buffer = wl_shm_pool_create_buffer(pool, 0, width, height,
-			stride, drm_format_to_wl_shm(format));
-	wl_shm_pool_destroy(pool);
-	if (!self->wl_buffer)
-		goto shm_failure;
-
-	close(fd);
-
-	wl_buffer_add_listener(self->wl_buffer, &buffer_listener, self);
-
-	return self;
-
-shm_failure:
-pool_failure:
-	munmap(self->pixels, self->size);
-mmap_failure:
-	close(fd);
-failure:
-	free(self);
-	return NULL;
-}
 
 static void handle_shm_format(void* data, struct wl_shm* shm, uint32_t format)
 {

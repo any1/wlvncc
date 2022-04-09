@@ -33,3 +33,7 @@ struct buffer {
 	bool please_clean_up;
 	struct pixman_region16 damage;
 };
+
+struct buffer* buffer_create(int width, int height, int stride, uint32_t format);
+void buffer_destroy(struct buffer* self);
+
