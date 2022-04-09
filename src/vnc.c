@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 Andri Yngvason
+ * Copyright (c) 2020 - 2022 Andri Yngvason
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,8 +22,12 @@
 #include <pixman.h>
 #include <rfb/rfbclient.h>
 #include <libdrm/drm_fourcc.h>
+#include <libavutil/frame.h>
 
 #include "vnc.h"
+#include "open-h264.h"
+
+#define RFB_ENCODING_OPEN_H264 50
 
 extern const unsigned short code_map_linux_to_qnum[];
 extern const unsigned int code_map_linux_to_qnum_len;
@@ -42,8 +46,22 @@ static void vnc_client_update_box(rfbClient* client, int x, int y, int width,
 	struct vnc_client* self = rfbClientGetClientData(client, NULL);
 	assert(self);
 
+	if (self->current_rect_is_av_frame) {
+		self->current_rect_is_av_frame = false;
+		return;
+	}
+
 	pixman_region_union_rect(&self->damage, &self->damage, x, y, width,
 			height);
+}
+
+static void vnc_client_clear_av_frames(struct vnc_client* self)
+{
+	for (int i = 0; i < self->n_av_frames; ++i) {
+		av_frame_unref(self->av_frames[i]->frame);
+		free(self->av_frames[i]);
+	}
+	self->n_av_frames = 0;
 }
 
 static void vnc_client_finish_update(rfbClient* client)
@@ -54,6 +72,7 @@ static void vnc_client_finish_update(rfbClient* client)
 	self->update_fb(self);
 
 	pixman_region_clear(&self->damage);
+	vnc_client_clear_av_frames(self);
 }
 
 static void vnc_client_got_cut_text(rfbClient* client, const char* text,
@@ -66,8 +85,56 @@ static void vnc_client_got_cut_text(rfbClient* client, const char* text,
 		self->cut_text(self, text, len);
 }
 
+static rfbBool vnc_client_handle_open_h264_rect(rfbClient* client,
+		rfbFramebufferUpdateRectHeader* rect_header)
+{
+	struct vnc_client* self = rfbClientGetClientData(client, NULL);
+	assert(self);
+
+	if (!self->open_h264)
+		self->open_h264 = open_h264_create(client);
+
+	if (!self->open_h264)
+		return false;
+
+	AVFrame* frame = open_h264_decode_rect(self->open_h264, rect_header);
+	if (!frame)
+		return false;
+
+	assert(self->n_av_frames < VNC_CLIENT_MAX_AV_FRAMES);
+
+	struct vnc_av_frame* f = calloc(1, sizeof(*f));
+	if (!f) {
+		av_frame_unref(frame);
+		return false;
+	}
+
+	f->frame = frame;
+	f->x = rect_header->r.x;
+	f->y = rect_header->r.y;
+	f->width = rect_header->r.w;
+	f->height = rect_header->r.h;
+
+	self->av_frames[self->n_av_frames++] = f;
+
+	self->current_rect_is_av_frame = true;
+	return true;
+}
+
+static void vnc_client_init_open_h264(void)
+{
+	static int encodings[] = { RFB_ENCODING_OPEN_H264, 0 };
+	static rfbClientProtocolExtension ext = {
+		.encodings = encodings,
+		.handleEncoding = vnc_client_handle_open_h264_rect,
+	};
+	rfbClientRegisterExtension(&ext);
+}
+
 struct vnc_client* vnc_client_create(void)
 {
+	vnc_client_init_open_h264();
+
 	struct vnc_client* self = calloc(1, sizeof(*self));
 	if (!self)
 		return NULL;
@@ -101,6 +168,8 @@ failure:
 
 void vnc_client_destroy(struct vnc_client* self)
 {
+	vnc_client_clear_av_frames(self);
+	open_h264_destroy(self->open_h264);
 	rfbClientCleanup(self->client);
 	free(self);
 }

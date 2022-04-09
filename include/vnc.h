@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 Andri Yngvason
+ * Copyright (c) 2020 - 2022 Andri Yngvason
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,8 +22,23 @@
 #include <wayland-client.h>
 #include <rfb/rfbclient.h>
 
+#define VNC_CLIENT_MAX_AV_FRAMES 64
+
+struct open_h264;
+struct AVFrame;
+
+struct vnc_av_frame {
+	struct AVFrame* frame;
+	int x, y, width, height;
+};
+
 struct vnc_client {
 	rfbClient* client;
+
+	struct open_h264* open_h264;
+	bool current_rect_is_av_frame;
+	struct vnc_av_frame* av_frames[VNC_CLIENT_MAX_AV_FRAMES];
+	int n_av_frames;
 
 	int (*alloc_fb)(struct vnc_client*);
 	void (*update_fb)(struct vnc_client*);

@@ -37,6 +37,8 @@ drm = dependency('libdrm')
 gbm = dependency('gbm')
 egl = dependency('egl')
 glesv2 = dependency('glesv2')
+lavc = dependency('libavcodec')
+lavu = dependency('libavutil')
 
 libvncserver_opt = cmake.subproject_options()
 libvncserver_opt.add_cmake_defines({
@@ -78,6 +80,7 @@ sources = [
 	'src/renderer.c',
 	'src/renderer-egl.c',
 	'src/buffer.c',
+	'src/open-h264.c',
 ]
 
 dependencies = [
@@ -92,6 +95,8 @@ dependencies = [
 	gbm,
 	egl,
 	glesv2,
+	lavc,
+	lavu,
 	libvncclient,
 	client_protos,
 ]
