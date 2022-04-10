@@ -187,9 +187,7 @@ static void handle_dmabuf_format(void *data,
 
 	switch (format) {
 	case DRM_FORMAT_XRGB8888:
-	case DRM_FORMAT_ARGB8888:
 	case DRM_FORMAT_XBGR8888:
-	case DRM_FORMAT_ABGR8888:
 		dmabuf_format = format;
 	}
 }
