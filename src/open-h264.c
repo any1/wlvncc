@@ -89,8 +89,6 @@ static struct open_h264_context* open_h264_context_create(
 	if (!context->parser)
 		goto failure;
 
-	context->parser->flags = PARSER_FLAG_COMPLETE_FRAMES;
-
 	context->codec_ctx = avcodec_alloc_context3(codec);
 	if (!context->codec_ctx)
 		goto failure;
@@ -176,6 +174,8 @@ void open_h264_destroy(struct open_h264* self)
 static bool decode_frame(struct open_h264_context* context, AVFrame* frame,
 		AVPacket* packet)
 {
+	av_frame_unref(frame);
+
 	int rc;
 
 	rc = avcodec_send_packet(context->codec_ctx, packet);
@@ -202,6 +202,14 @@ static bool decode_frame(struct open_h264_context* context, AVFrame* frame,
 	av_frame_free(&vaapi_frame);
 
 	return true;
+}
+
+static int parse_elementary_stream(struct open_h264_context* context,
+		AVPacket* packet, const uint8_t* src, uint32_t length)
+{
+	return av_parser_parse2(context->parser, context->codec_ctx,
+			&packet->data, &packet->size, src, length,
+			AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
 }
 
 struct AVFrame* open_h264_decode_rect(struct open_h264* self,
@@ -241,17 +249,24 @@ struct AVFrame* open_h264_decode_rect(struct open_h264* self,
 	if (!ReadFromRFBServer(self->client, data, length))
 		goto failure;
 
-	const uint8_t* dp = (const uint8_t*)data;
+	uint8_t* dp = (uint8_t*)data;
 
 	while (length > 0) {
-		int rc = av_parser_parse2(context->parser, context->codec_ctx,
-				&packet->data, &packet->size, dp, length,
-				AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
+		int rc = parse_elementary_stream(context, packet, dp, length);
 		if (rc < 0)
 			goto failure;
 
 		dp += rc;
 		length -= rc;
+
+		// The h264 elementary stream doesn't have end-markers, so the
+		// parser doesn't know where the frame ends. This flushes it:
+		if (packet->size == 0 && length == 0) {
+			int rc = parse_elementary_stream(context, packet, dp,
+					length);
+			if (rc < 0)
+				goto failure;
+		}
 
 		// If we get multiple frames per rect, there's no point in
 		// rendering them all, so we just return the last one.
