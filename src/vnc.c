@@ -32,6 +32,8 @@
 extern const unsigned short code_map_linux_to_qnum[];
 extern const unsigned int code_map_linux_to_qnum_len;
 
+rfbBool vnc_client_set_format_and_encodings(rfbClient* client);
+
 static rfbBool vnc_client_alloc_fb(rfbClient* client)
 {
 	struct vnc_client* self = rfbClientGetClientData(client, NULL);
@@ -190,7 +192,7 @@ int vnc_client_connect(struct vnc_client* self, const char* address, int port)
 	if (!client->MallocFrameBuffer(client))
 		return -1;
 
-	if (!SetFormatAndEncodings(client))
+	if (!vnc_client_set_format_and_encodings(client))
 		return -1;
 
 	if (client->updateRect.x < 0) {
