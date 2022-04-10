@@ -51,8 +51,9 @@ struct window {
 	struct xdg_surface* xdg_surface;
 	struct xdg_toplevel* xdg_toplevel;
 
-	struct buffer* front_buffer;
+	struct buffer* buffers[3];
 	struct buffer* back_buffer;
+	int buffer_index;
 
 	struct vnc_client* vnc;
 	void* vnc_fb;
@@ -316,9 +317,8 @@ static void window_commit(struct window* w)
 
 static void window_swap(struct window* w)
 {
-	struct buffer* tmp = w->front_buffer;
-	w->front_buffer = w->back_buffer;
-	w->back_buffer = tmp;
+	w->buffer_index = (w->buffer_index + 1) % 3;
+	w->back_buffer = w->buffers[w->buffer_index];
 }
 
 static void window_damage(struct window* w, int x, int y, int width, int height)
@@ -352,16 +352,15 @@ static void window_resize(struct window* w, int width, int height)
 			w->back_buffer->height == height)
 		return;
 
-	buffer_destroy(w->front_buffer);
-	buffer_destroy(w->back_buffer);
+	for (int i = 0; i < 3; ++i)
+		buffer_destroy(w->buffers[i]);
 
-	w->front_buffer = have_egl ?
-		buffer_create_dmabuf(width, height, dmabuf_format) :
-		buffer_create_shm(width, height, 4 * width, shm_format);
+	for (int i = 0; i < 3; ++i)
+		w->buffers[i] = have_egl ?
+			buffer_create_dmabuf(width, height, dmabuf_format) :
+			buffer_create_shm(width, height, 4 * width, shm_format);
 
-	w->back_buffer = have_egl ?
-		buffer_create_dmabuf(width, height, dmabuf_format) :
-		buffer_create_shm(width, height, 4 * width, shm_format);
+	w->back_buffer = w->buffers[0];
 }
 
 static void xdg_toplevel_configure(void* data, struct xdg_toplevel* toplevel,
@@ -419,8 +418,8 @@ wl_surface_failure:
 
 static void window_destroy(struct window* w)
 {
-	buffer_destroy(w->front_buffer);
-	buffer_destroy(w->back_buffer);
+	for (int i = 0; i < 3; ++i)
+		buffer_destroy(w->buffers[i]);
 
 	free(w->vnc_fb);
 	xdg_toplevel_destroy(w->xdg_toplevel);
@@ -546,10 +545,9 @@ void on_vnc_client_update_fb(struct vnc_client* client)
 	region_translate(&damage, &damage_scaled, x_pos, y_pos);
 	pixman_region_fini(&damage_scaled);
 
-	pixman_region_union(&window->front_buffer->damage,
-			&window->front_buffer->damage, &damage);
-	pixman_region_union(&window->back_buffer->damage,
-			&window->back_buffer->damage, &damage);
+	for (int i = 0; i < 3; ++i)
+		pixman_region_union(&window->buffers[i]->damage,
+				&window->buffers[i]->damage, &damage);
 
 	int n_rects = 0;
 	struct pixman_box16* box = pixman_region_rectangles(&damage, &n_rects);
