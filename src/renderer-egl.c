@@ -17,6 +17,7 @@
 #include "buffer.h"
 #include "renderer.h"
 #include "renderer-egl.h"
+#include "vnc.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -33,6 +34,9 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
+#include <libavutil/frame.h>
+#include <libavutil/hwcontext_drm.h>
+
 #define XSTR(s) STR(s)
 #define STR(s) #s
 
@@ -42,6 +46,7 @@ X(PFNEGLCREATEIMAGEKHRPROC, eglCreateImageKHR) \
 X(PFNEGLDESTROYIMAGEKHRPROC, eglDestroyImageKHR) \
 
 #define GL_EXTENSION_LIST \
+X(PFNGLEGLIMAGETARGETTEXTURE2DOESPROC, glEGLImageTargetTexture2DOES) \
 X(PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC, glEGLImageTargetRenderbufferStorageOES) \
 
 #define X(t, n) static t n;
@@ -64,6 +69,7 @@ static EGLDisplay egl_display = EGL_NO_DISPLAY;
 static EGLContext egl_context = EGL_NO_CONTEXT;
 
 static GLuint shader_program = 0;
+static GLuint shader_program_ext = 0;
 static GLuint texture = 0;
 
 static const char *vertex_shader_src =
@@ -78,6 +84,15 @@ static const char *vertex_shader_src =
 static const char *fragment_shader_src =
 "precision mediump float;\n"
 "uniform sampler2D u_tex;\n"
+"varying vec2 v_texture;\n"
+"void main() {\n"
+"	gl_FragColor = texture2D(u_tex, v_texture);\n"
+"}\n";
+
+static const char *fragment_shader_ext_src =
+"#extension GL_OES_EGL_image_external: require\n\n"
+"precision mediump float;\n"
+"uniform samplerExternalOES u_tex;\n"
 "varying vec2 v_texture;\n"
 "void main() {\n"
 "	gl_FragColor = texture2D(u_tex, v_texture);\n"
@@ -113,10 +128,10 @@ static int egl_load_gl_ext(void)
 	return 0;
 }
 
-static void compile_shaders()
+static int compile_shaders(const char* vert_src, const char* frag_src)
 {
 	GLuint vert = glCreateShader(GL_VERTEX_SHADER);
-	glShaderSource(vert, 1, &vertex_shader_src, NULL);
+	glShaderSource(vert, 1, &vert_src, NULL);
 	glCompileShader(vert);
 
 	GLint is_compiled = 0;
@@ -124,29 +139,31 @@ static void compile_shaders()
 	assert(is_compiled);
 
 	GLuint frag = glCreateShader(GL_FRAGMENT_SHADER);
-	glShaderSource(frag, 1, &fragment_shader_src, NULL);
+	glShaderSource(frag, 1, &frag_src, NULL);
 	glCompileShader(frag);
 	glGetShaderiv(frag, GL_COMPILE_STATUS, &is_compiled);
 	assert(is_compiled);
 
-	shader_program = glCreateProgram();
+	int prog = glCreateProgram();
 
-	glAttachShader(shader_program, vert);
-	glAttachShader(shader_program, frag);
+	glAttachShader(prog, vert);
+	glAttachShader(prog, frag);
 
-	glBindAttribLocation(shader_program, ATTR_INDEX_POS, "pos");
-	glBindAttribLocation(shader_program, ATTR_INDEX_TEXTURE, "texture");
+	glBindAttribLocation(prog, ATTR_INDEX_POS, "pos");
+	glBindAttribLocation(prog, ATTR_INDEX_TEXTURE, "texture");
 
-	glLinkProgram(shader_program);
+	glLinkProgram(prog);
 
 	glDeleteShader(vert);
 	glDeleteShader(frag);
 
 	GLint is_linked = 0;
-	glGetProgramiv(shader_program, GL_LINK_STATUS, &is_linked);
+	glGetProgramiv(prog, GL_LINK_STATUS, &is_linked);
 	assert(is_linked);
 
-	uniforms.u_tex = glGetUniformLocation(shader_program, "u_tex");
+	uniforms.u_tex = glGetUniformLocation(prog, "u_tex");
+
+	return prog;
 }
 
 int egl_init(void)
@@ -185,7 +202,10 @@ int egl_init(void)
 	if (egl_load_gl_ext() < 0)
 		goto failure;
 
-	compile_shaders();
+	shader_program = compile_shaders(vertex_shader_src,
+			fragment_shader_src);
+	shader_program_ext = compile_shaders(vertex_shader_src,
+			fragment_shader_ext_src);
 
 	return 0;
 
@@ -198,6 +218,8 @@ void egl_finish(void)
 {
 	if (texture)
 		glDeleteTextures(1, &texture);
+	if (shader_program_ext)
+		glDeleteProgram(shader_program_ext);
 	if (shader_program)
 		glDeleteProgram(shader_program);
 	eglDestroyContext(egl_display, egl_context);
@@ -274,6 +296,78 @@ static void fbo_from_gbm_bo(struct fbo_info* dst, struct gbm_bo* bo)
 
 	eglDestroyImageKHR(egl_display, image);
 	close(fd);
+}
+
+#define X(lc, uc) \
+static EGLint plane_ ## lc ## _key(int plane) \
+{ \
+	switch (plane) { \
+	case 0: return EGL_DMA_BUF_PLANE0_ ## uc ## _EXT; \
+	case 1: return EGL_DMA_BUF_PLANE1_ ## uc ## _EXT; \
+	case 2: return EGL_DMA_BUF_PLANE2_ ## uc ## _EXT; \
+	case 3: return EGL_DMA_BUF_PLANE3_ ## uc ## _EXT; \
+	} \
+	return EGL_NONE; \
+}
+
+X(fd, FD);
+X(offset, OFFSET);
+X(pitch, PITCH);
+X(modifier_lo, MODIFIER_LO);
+X(modifier_hi, MODIFIER_HI);
+#undef X
+
+static void dmabuf_attr_append_planes(EGLint* dst, int* index,
+		struct AVDRMFrameDescriptor* desc)
+{
+	struct AVDRMPlaneDescriptor *plane;
+	struct AVDRMObjectDescriptor *obj;
+
+	for (int i = 0; i < desc->nb_layers; ++i) {
+		assert(desc->layers[i].nb_planes == 1);
+
+		plane = &desc->layers[i].planes[0];
+		obj = &desc->objects[plane->object_index];
+
+		append_attr(dst, index, plane_fd_key(i), obj->fd);
+		append_attr(dst, index, plane_offset_key(i), plane->offset);
+		append_attr(dst, index, plane_pitch_key(i), plane->pitch);
+		append_attr(dst, index, plane_modifier_lo_key(i),
+				obj->format_modifier);
+		append_attr(dst, index, plane_modifier_hi_key(i),
+				obj->format_modifier >> 32);
+	}
+}
+
+static GLuint texture_from_av_frame(const struct AVFrame* frame)
+{
+	int index = 0;
+	EGLint attr[128];
+
+	AVDRMFrameDescriptor *desc = (void*)frame->data[0];
+
+	append_attr(attr, &index, EGL_WIDTH, frame->width);
+	append_attr(attr, &index, EGL_HEIGHT, frame->height);
+	append_attr(attr, &index, EGL_LINUX_DRM_FOURCC_EXT, DRM_FORMAT_NV12);
+	append_attr(attr, &index, EGL_IMAGE_PRESERVED_KHR, EGL_TRUE);
+	dmabuf_attr_append_planes(attr, &index, desc);
+	attr[index++] = EGL_NONE;
+
+	EGLImageKHR image = eglCreateImageKHR(egl_display, EGL_NO_CONTEXT,
+				EGL_LINUX_DMA_BUF_EXT, NULL, attr);
+	assert(image != EGL_NO_IMAGE_KHR);
+
+	GLuint tex = 0;
+	glGenTextures(1, &tex);
+
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, tex);
+
+	glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, image);
+
+	eglDestroyImageKHR(egl_display, image);
+
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
+	return tex;
 }
 
 void gl_draw(void)
@@ -402,6 +496,47 @@ void render_image_egl(struct buffer* dst, const struct image* src,
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+	glDeleteFramebuffers(1, &fbo.fbo);
+	glDeleteRenderbuffers(1, &fbo.rbo);
+}
+
+void render_av_frames_egl(struct buffer* dst, struct vnc_av_frame** src,
+		int n_av_frames, double scale, int x_pos, int y_pos)
+{
+	struct fbo_info fbo;
+	fbo_from_gbm_bo(&fbo, dst->bo);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo.fbo);
+
+	glClearColor(0.0, 0.0, 0.0, 1.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	struct pixman_box16* ext = pixman_region_extents(&dst->damage);
+	glScissor(ext->x1, ext->y1, ext->x2 - ext->x1, ext->y2 - ext->y1);
+	glEnable(GL_SCISSOR_TEST);
+
+	glUseProgram(shader_program_ext);
+
+	for (int i = 0; i < n_av_frames; ++i) {
+		const struct vnc_av_frame* frame = src[i];
+
+		int width = round((double)frame->width * scale);
+		int height = round((double)frame->height * scale);
+		glViewport(x_pos + frame->x, y_pos + frame->y, width, height);
+
+		GLuint tex = texture_from_av_frame(frame->frame);
+		glBindTexture(GL_TEXTURE_EXTERNAL_OES, tex);
+
+		gl_draw();
+
+		glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
+	}
+
+	glDisable(GL_SCISSOR_TEST);
+
+	glFinish();
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glDeleteFramebuffers(1, &fbo.fbo);
 	glDeleteRenderbuffers(1, &fbo.rbo);
 }
