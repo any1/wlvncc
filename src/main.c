@@ -281,6 +281,18 @@ static void window_transfer_pixels(struct window* w)
 	int x_pos, y_pos;
 	window_calculate_tranform(w, &scale, &x_pos, &y_pos);
 
+	if (w->vnc->n_av_frames != 0) {
+		// TODO: Don't register open h264 extension unless we have egl
+		assert(have_egl);
+
+		if (pixman_region_not_empty(&w->vnc->damage))
+			fprintf(stderr, "Oops, got both av frames and buffer damage\n");
+
+		render_av_frames_egl(w->back_buffer, w->vnc->av_frames,
+				w->vnc->n_av_frames, scale, x_pos, y_pos);
+		return;
+	}
+
 	struct image image = {
 		.pixels = w->vnc_fb,
 		.width = vnc_client_get_width(w->vnc),
@@ -500,7 +512,8 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 
 void on_vnc_client_update_fb(struct vnc_client* client)
 {
-	if (!pixman_region_not_empty(&client->damage))
+	if (!pixman_region_not_empty(&client->damage) &&
+			client->n_av_frames == 0)
 		return;
 
 	if (window->back_buffer->is_attached)
@@ -512,8 +525,24 @@ void on_vnc_client_update_fb(struct vnc_client* client)
 	int x_pos, y_pos;
 	window_calculate_tranform(window, &scale, &x_pos, &y_pos);
 
+	struct pixman_region16 frame_damage = { 0 };
+	pixman_region_copy(&frame_damage, &client->damage);
+
+	if (client->n_av_frames != 0) {
+
+		for (int i = 0; i < client->n_av_frames; ++i) {
+			const struct vnc_av_frame* frame = client->av_frames[i];
+
+			pixman_region_union_rect(&frame_damage, &frame_damage,
+					frame->x, frame->y, frame->width,
+					frame->height);
+		}
+	}
+
 	struct pixman_region16 damage_scaled = { 0 }, damage = { 0 };
-	region_scale(&damage_scaled, &client->damage, scale);
+	region_scale(&damage_scaled, &frame_damage, scale);
+	pixman_region_fini(&frame_damage);
+
 	region_translate(&damage, &damage_scaled, x_pos, y_pos);
 	pixman_region_fini(&damage_scaled);
 
