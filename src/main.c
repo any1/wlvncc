@@ -681,7 +681,7 @@ Usage: wlvncc <address> [port]\n\
     -c,--compression         Compression level (0 - 9).\n\
     -e,--encodings=<list>    Set allowed encodings, comma separated list.\n\
                              Supported values: tight, zrle, ultra, copyrect,\n\
-                             hextile, zlib, corre, rre, raw.\n\
+                             hextile, zlib, corre, rre, raw, open-h264.\n\
     -h,--help                Get help.\n\
     -n,--hide-cursor         Hide the client-side cursor.\n\
     -q,--quality             Quality level (0 - 9).\n\
@@ -817,8 +817,18 @@ int main(int argc, char* argv[])
 		goto vnc_setup_failure;
 	}
 
-	if (encodings)
-		vnc_client_set_encodings(vnc, encodings);
+	if (encodings) {
+		if (!have_egl && strstr(encodings, "open-h264")) {
+			fprintf(stderr, "Open H.264 encoding won't work without EGL\n");
+			goto vnc_setup_failure;
+		}
+	} else if (have_egl) {
+		encodings = "open-h264,tight,zrle,ultra,copyrect,hextile,zlib"
+			",corre,rre,raw";
+	} else {
+		encodings = "tight,zrle,ultra,copyrect,hextile,zlib,corre,rre,raw";
+	}
+	vnc_client_set_encodings(vnc, encodings);
 
 	if (quality >= 0)
 		vnc_client_set_quality_level(vnc, quality);
