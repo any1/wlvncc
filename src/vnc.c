@@ -207,6 +207,9 @@ int vnc_client_connect(struct vnc_client* self, const char* address, int port)
 				FALSE))
 		return -1;
 
+	SendIncrementalFramebufferUpdateRequest(client);
+	SendIncrementalFramebufferUpdateRequest(client);
+
 	return 0;
 }
 
