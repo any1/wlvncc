@@ -173,6 +173,10 @@ rfbBool vnc_client_set_format_and_encodings(rfbClient* client)
 	if (se->nEncodings < MAX_ENCODINGS)
 		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingQemuExtendedKeyEvent);
 
+	/* pts */
+	if (se->nEncodings < MAX_ENCODINGS)
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(-1000);
+
 	len = sz_rfbSetEncodingsMsg + se->nEncodings * 4;
 
 	se->nEncodings = rfbClientSwap16IfLE(se->nEncodings);

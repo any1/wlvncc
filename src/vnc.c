@@ -19,20 +19,34 @@
 #include <assert.h>
 #include <string.h>
 #include <stdbool.h>
+#include <limits.h>
 #include <pixman.h>
 #include <rfb/rfbclient.h>
 #include <libdrm/drm_fourcc.h>
 #include <libavutil/frame.h>
+#include <byteswap.h>
 
 #include "vnc.h"
 #include "open-h264.h"
 
 #define RFB_ENCODING_OPEN_H264 50
+#define RFB_ENCODING_PTS -1000
+
+#define NO_PTS UINT64_MAX
 
 extern const unsigned short code_map_linux_to_qnum[];
 extern const unsigned int code_map_linux_to_qnum_len;
 
 rfbBool vnc_client_set_format_and_encodings(rfbClient* client);
+
+static uint64_t vnc_client_htonll(uint64_t x)
+{
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+	return bswap_64(x);
+#else
+	return x;
+#endif
+}
 
 static rfbBool vnc_client_alloc_fb(rfbClient* client)
 {
@@ -73,6 +87,7 @@ static void vnc_client_finish_update(rfbClient* client)
 
 	self->update_fb(self);
 
+	self->pts = NO_PTS;
 	pixman_region_clear(&self->damage);
 	vnc_client_clear_av_frames(self);
 }
@@ -90,6 +105,9 @@ static void vnc_client_got_cut_text(rfbClient* client, const char* text,
 static rfbBool vnc_client_handle_open_h264_rect(rfbClient* client,
 		rfbFramebufferUpdateRectHeader* rect_header)
 {
+	if ((int)rect_header->encoding != RFB_ENCODING_OPEN_H264)
+		return FALSE;
+
 	struct vnc_client* self = rfbClientGetClientData(client, NULL);
 	assert(self);
 
@@ -133,9 +151,38 @@ static void vnc_client_init_open_h264(void)
 	rfbClientRegisterExtension(&ext);
 }
 
+static rfbBool vnc_client_handle_pts_rect(rfbClient* client,
+		rfbFramebufferUpdateRectHeader* rect_header)
+{
+	if ((int)rect_header->encoding != RFB_ENCODING_PTS)
+		return FALSE;
+
+	struct vnc_client* self = rfbClientGetClientData(client, NULL);
+	assert(self);
+
+	uint64_t pts_msg = 0;
+	if (!ReadFromRFBServer(self->client, (char*)&pts_msg, sizeof(pts_msg)))
+		return FALSE;
+
+	self->pts = vnc_client_htonll(pts_msg);
+
+	return TRUE;
+}
+
+static void vnc_client_init_pts_ext(void)
+{
+	static int encodings[] = { RFB_ENCODING_PTS, 0 };
+	static rfbClientProtocolExtension ext = {
+		.encodings = encodings,
+		.handleEncoding = vnc_client_handle_pts_rect,
+	};
+	rfbClientRegisterExtension(&ext);
+}
+
 struct vnc_client* vnc_client_create(void)
 {
 	vnc_client_init_open_h264();
+	vnc_client_init_pts_ext();
 
 	struct vnc_client* self = calloc(1, sizeof(*self));
 	if (!self)
@@ -160,6 +207,8 @@ struct vnc_client* vnc_client_create(void)
 	client->GotFrameBufferUpdate = vnc_client_update_box;
 	client->FinishedFrameBufferUpdate = vnc_client_finish_update;
 	client->GotXCutText = vnc_client_got_cut_text;
+
+	self->pts = NO_PTS;
 
 	return self;
 

@@ -39,6 +39,7 @@ struct vnc_client {
 	bool current_rect_is_av_frame;
 	struct vnc_av_frame* av_frames[VNC_CLIENT_MAX_AV_FRAMES];
 	int n_av_frames;
+	uint64_t pts;
 
 	int (*alloc_fb)(struct vnc_client*);
 	void (*update_fb)(struct vnc_client*);
