@@ -24,7 +24,6 @@
 #include <rfb/rfbclient.h>
 #include <libdrm/drm_fourcc.h>
 #include <libavutil/frame.h>
-#include <byteswap.h>
 
 #include "vnc.h"
 #include "open-h264.h"
@@ -42,7 +41,7 @@ rfbBool vnc_client_set_format_and_encodings(rfbClient* client);
 static uint64_t vnc_client_htonll(uint64_t x)
 {
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-	return bswap_64(x);
+	return __builtin_bswap64(x);
 #else
 	return x;
 #endif
