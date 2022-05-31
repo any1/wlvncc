@@ -21,10 +21,10 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <pixman.h>
-#include <rfb/rfbclient.h>
 #include <libdrm/drm_fourcc.h>
 #include <libavutil/frame.h>
 
+#include "rfb/rfbclient.h"
 #include "vnc.h"
 #include "open-h264.h"
 

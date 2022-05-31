@@ -28,6 +28,7 @@ cc = meson.get_compiler('c')
 
 libm = cc.find_library('m', required: false)
 librt = cc.find_library('rt', required: false)
+pthread = cc.find_library('pthread', required: false)
 
 xkbcommon = dependency('xkbcommon')
 pixman = dependency('pixman-1')
@@ -39,20 +40,14 @@ egl = dependency('egl')
 glesv2 = dependency('glesv2')
 lavc = dependency('libavcodec')
 lavu = dependency('libavutil')
-
-libvncserver_opt = cmake.subproject_options()
-libvncserver_opt.add_cmake_defines({
-	'BUILD_SHARED_LIBS': false,
-	'LIBVNCSERVER_INSTALL': false,
-})
-
-libvncserver_project = cmake.subproject('libvncserver', required: false,
-		options: libvncserver_opt)
-if libvncserver_project.found()
-	libvncclient = libvncserver_project.dependency('vncclient')
-else
-	libvncclient = dependency('libvncclient')
-endif
+gcrypt = dependency('libgcrypt', required: false)
+openssl = dependency('openssl', required: false)
+gnutls = dependency('gnutls', required: false)
+sasl = dependency('libsasl2', required: false)
+libjpeg = dependency('libjpeg', required: false)
+libpng = dependency('libpng', required: false)
+lzo = dependency('lzo2', required: false)
+libz = dependency('zlib', required: false)
 
 aml_project = subproject('aml', required: false,
 		default_options: ['default_library=static'])
@@ -62,7 +57,7 @@ else
 	aml = dependency('aml')
 endif
 
-inc = include_directories('include')
+inc = include_directories('include', 'src/encodings')
 
 subdir('protocols')
 
@@ -82,6 +77,12 @@ sources = [
 	'src/renderer-egl.c',
 	'src/buffer.c',
 	'src/open-h264.c',
+	'src/cursor.c',
+	'src/listen.c',
+	'src/rfbproto.c',
+	'src/sockets.c',
+	'src/vncviewer.c',
+	'src/turbojpeg.c',
 ]
 
 dependencies = [
@@ -98,13 +99,65 @@ dependencies = [
 	glesv2,
 	lavc,
 	lavu,
-	libvncclient,
 	client_protos,
 ]
 
 config = configuration_data()
 
 config.set('PREFIX', '"' + prefix + '"')
+
+if gcrypt.found()
+	sources += 'src/crypto_libgcrypt.c'
+	dependencies += gcrypt
+elif openssl.found()
+	sources += 'src/crypto_openssl.c'
+	dependencies += openssl
+else
+	sources += 'src/crypto_included.c'
+endif
+
+if gnutls.found()
+	sources += 'src/tls_gnutls.c'
+	dependencies += gnutls
+	config.set('LIBVNCSERVER_HAVE_GNUTLS', true)
+elif openssl.found()
+	sources += 'src/tls_openssl.c'
+	dependencies += openssl
+	config.set('LIBVNCSERVER_HAVE_LIBSSL', true)
+else
+	sources += 'src/tls_none.c'
+endif
+
+if sasl.found()
+	dependencies += sasl
+	sources += 'src/sasl.c'
+	config.set('LIBVNCSERVER_HAVE_SASL', true)
+endif
+
+if libjpeg.found()
+	dependencies += libjpeg
+	config.set('LIBVNCSERVER_HAVE_LIBJPEG', true)
+endif
+
+if libpng.found()
+	dependencies += libpng
+	config.set('LIBVNCSERVER_HAVE_LIBPNG', true)
+endif
+
+if pthread.found()
+	dependencies += pthread
+	config.set('LIBVNCSERVER_HAVE_PTHREAD', true)
+endif
+
+if libz.found()
+	dependencies += libz
+	config.set('LIBVNCSERVER_HAVE_LIBZ', true)
+endif
+
+if lzo.found()
+	dependencies += lzo
+	config.set('LIBVNCSERVER_HAVE_LZO', true)
+endif
 
 if host_system == 'linux' and cc.has_header('sys/sdt.h')
 	config.set('HAVE_USDT', true)
