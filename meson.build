@@ -68,7 +68,6 @@ sources = [
 	'src/pointer.c',
 	'src/keyboard.c',
 	'src/vnc.c',
-	'src/vnc_encodings.c',
 	'src/strlcpy.c',
 	'src/evdev-to-qnum.c',
 	'src/pixels.c',
