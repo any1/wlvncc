@@ -71,11 +71,6 @@
 #endif
 #endif
 
-/* MS compilers don't have strncasecmp */
-#ifdef _MSC_VER
-#define strncasecmp _strnicmp
-#endif
-
 #define rfbMax(a,b) (((a)>(b))?(a):(b))
 #include <sys/time.h>
 #include <netinet/in.h>

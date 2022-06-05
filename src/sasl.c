@@ -29,24 +29,14 @@
  * sasl.c - functions to deal with client side of the SASL protocol.
  */
 
-#ifdef __STRICT_ANSI__
-#define _BSD_SOURCE
-#define _POSIX_SOURCE
-#define _XOPEN_SOURCE 600
-#endif
-
 #include <errno.h>
-#include <rfb/rfbclient.h>
+#include "rfb/rfbclient.h"
 
 #include "sockets.h"
 
 #include "sasl.h"
 
 #include "tls.h"
-
-#ifdef _MSC_VER
-#  define snprintf _snprintf /* MSVC went straight to the underscored syntax */
-#endif
 
 /*
  * NB, keep in sync with similar method in qemud/remote.c
