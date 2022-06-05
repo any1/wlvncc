@@ -28,6 +28,7 @@
 #include <fcntl.h>
 #include <assert.h>
 #include <sys/param.h>
+#include <poll.h>
 #include "rfb/rfbclient.h"
 #include "sockets.h"
 #include "tls.h"
@@ -94,95 +95,85 @@ rfbBool ReadFromRFBServer(rfbClient* client, char *out, unsigned int n)
 rfbBool
 WriteToRFBServer(rfbClient* client, const char *buf, unsigned int n)
 {
-  fd_set fds;
-  int i = 0;
-  int j;
-  const char *obuf = buf;
+	struct pollfd fds;
+	int i = 0;
+	int j;
+	const char *obuf = buf;
 #ifdef LIBVNCSERVER_HAVE_SASL
-  const char *output;
-  unsigned int outputlen;
-  int err;
+	const char *output;
+	unsigned int outputlen;
+	int err;
 #endif /* LIBVNCSERVER_HAVE_SASL */
 
-  if (client->serverPort==-1)
-    return TRUE; /* vncrec playing */
+	if (client->serverPort==-1)
+		return TRUE; /* vncrec playing */
 
-  if (client->tlsSession) {
-    /* WriteToTLS() will guarantee either everything is written, or error/eof returns */
-    i = WriteToTLS(client, buf, n);
-    if (i <= 0) return FALSE;
+	if (client->tlsSession) {
+		/* WriteToTLS() will guarantee either everything is written, or error/eof returns */
+		i = WriteToTLS(client, buf, n);
+		if (i <= 0) return FALSE;
 
-    return TRUE;
-  }
-#ifdef LIBVNCSERVER_HAVE_SASL
-  if (client->saslconn) {
-    err = sasl_encode(client->saslconn,
-                      buf, n,
-                      &output, &outputlen);
-    if (err != SASL_OK) {
-      rfbClientLog("Failed to encode SASL data %s",
-                   sasl_errstring(err, NULL, NULL));
-      return FALSE;
-    }
-    obuf = output;
-    n = outputlen;
-  }
-#endif /* LIBVNCSERVER_HAVE_SASL */
-
-  while (i < n) {
-    j = write(client->sock, obuf + i, (n - i));
-    if (j <= 0) {
-      if (j < 0) {
-	if (errno == EWOULDBLOCK ||
-		errno == EAGAIN) {
-	  FD_ZERO(&fds);
-	  FD_SET(client->sock,&fds);
-
-	  if (select(client->sock+1, NULL, &fds, NULL, NULL) <= 0) {
-	    rfbClientErr("select\n");
-	    return FALSE;
-	  }
-	  j = 0;
-	} else {
-	  rfbClientErr("write\n");
-	  return FALSE;
+		return TRUE;
 	}
-      } else {
-	rfbClientLog("write failed\n");
-	return FALSE;
-      }
-    }
-    i += j;
-  }
-  return TRUE;
-}
+#ifdef LIBVNCSERVER_HAVE_SASL
+	if (client->saslconn) {
+		err = sasl_encode(client->saslconn,
+				buf, n,
+				&output, &outputlen);
+		if (err != SASL_OK) {
+			rfbClientLog("Failed to encode SASL data %s",
+					sasl_errstring(err, NULL, NULL));
+			return FALSE;
+		}
+		obuf = output;
+		n = outputlen;
+	}
+#endif /* LIBVNCSERVER_HAVE_SASL */
 
+	// TODO: Dispatch events while waiting
+	while (i < n) {
+		j = write(client->sock, obuf + i, (n - i));
+		if (j <= 0) {
+			if (j < 0) {
+				if (errno == EWOULDBLOCK || errno == EAGAIN) {
+					fds.fd = client->sock;
+					fds.events = POLLIN;
+
+					if (poll(&fds, 1, -1) <= 0) {
+						rfbClientErr("select\n");
+						return FALSE;
+					}
+					j = 0;
+				} else {
+					rfbClientErr("write\n");
+					return FALSE;
+				}
+			} else {
+				rfbClientLog("write failed\n");
+				return FALSE;
+			}
+		}
+		i += j;
+	}
+	return TRUE;
+}
 
 static rfbBool WaitForConnected(int socket, unsigned int secs)
 {
-  fd_set writefds;
-  fd_set exceptfds;
-  struct timeval timeout;
+	struct pollfd fds = {
+		.fd = socket,
+		.events = POLLIN | POLLOUT | POLLERR | POLLHUP,
+	};
 
-  timeout.tv_sec=secs;
-  timeout.tv_usec=0;
+	if (poll(&fds, 1, secs * 1000) != 1)
+		return FALSE;
 
-  FD_ZERO(&writefds);
-  FD_SET(socket, &writefds);
-  FD_ZERO(&exceptfds);
-  FD_SET(socket, &exceptfds);
-  if (select(socket+1, NULL, &writefds, &exceptfds, &timeout)==1) {
-    int so_error;
-    socklen_t len = sizeof so_error;
-    getsockopt(socket, SOL_SOCKET, SO_ERROR, &so_error, &len);
-    if (so_error!=0)
-      return FALSE;
-    return TRUE;
-  }
+	int so_error = 0;
+	socklen_t len = sizeof(so_error);
+	getsockopt(socket, SOL_SOCKET, SO_ERROR, &so_error, &len);
 
-  return FALSE;
+	return so_error == 0 ? TRUE : FALSE;
 }
-
 
 rfbSocket
 ConnectClientToTcpAddr(unsigned int host, int port)
