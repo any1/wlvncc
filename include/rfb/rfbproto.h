@@ -71,10 +71,6 @@
 #endif
 #endif
 
-#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-# define LIBVNCSERVER_WORDS_BIGENDIAN 1
-#endif
-
 /* MS compilers don't have strncasecmp */
 #ifdef _MSC_VER
 #define strncasecmp _strnicmp
