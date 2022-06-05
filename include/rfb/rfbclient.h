@@ -684,9 +684,6 @@ extern rfbBool errorMessageOnReadFailure;
 
 extern rfbBool ReadFromRFBServer(rfbClient* client, char *out, unsigned int n);
 extern rfbBool WriteToRFBServer(rfbClient* client, const char *buf, unsigned int n);
-extern int FindFreeTcpPort(void);
-extern rfbSocket ListenAtTcpPort(int port);
-extern rfbSocket ListenAtTcpPortAndAddress(int port, const char *address);
 /**
    Tries to connect to an IPv4 host.
    @param host Binary IPv4 address
@@ -730,24 +727,12 @@ extern rfbSocket ConnectClientToTcpAddr6WithTimeout(const char *hostname, int po
    @return A nonblocking socket or RFB_INVALID_SOCKET if the connection failed
 */
 extern rfbSocket ConnectClientToUnixSockWithTimeout(const char *sockFile, unsigned int timeout);
-extern rfbSocket AcceptTcpConnection(rfbSocket listenSock);
 extern rfbBool SetNonBlocking(rfbSocket sock);
 extern rfbBool SetBlocking(rfbSocket sock);
 extern rfbBool SetDSCP(rfbSocket sock, int dscp);
 
 extern rfbBool StringToIPAddr(const char *str, unsigned int *addr);
 extern rfbBool SameMachine(rfbSocket sock);
-/**
- * Waits for an RFB message to arrive from the server. Before handling a message
- * with HandleRFBServerMessage(), you must wait for your client to receive one.
- * This function blocks until a message is received. You may specify a timeout
- * in microseconds. Once this number of microseconds have elapsed, the function
- * will return.
- * @param client The client to cause to wait until a message is received
- * @param usecs The timeout in microseconds
- * @return the return value of the underlying select() call
- */
-extern int WaitForMessage(rfbClient* client,unsigned int usecs);
 
 /* vncviewer.c */
 /**
@@ -775,38 +760,6 @@ extern int WaitForMessage(rfbClient* client,unsigned int usecs);
  * @return a pointer to the allocated rfbClient structure
  */
 rfbClient* rfbGetClient(int bitsPerSample,int samplesPerPixel,int bytesPerPixel);
-/**
- * Initializes the client. The format is {PROGRAM_NAME, [OPTIONS]..., HOST}. This
- * function does not initialize the program name if the rfbClient's program
- * name is set already. The options are as follows:
- * <table>
- * <tr><th>Option</th><th>Description</th></tr>
- * <tr><td>-listen</td><td>Listen for incoming connections.</td></tr>
- * <tr><td>-listennofork</td><td>Listen for incoming connections without forking.
- * </td></tr>
- * <tr><td>-play</td><td>Set this client to replay a previously recorded session.</td></tr>
- * <tr><td>-encodings</td><td>Set the encodings to use. The next item in the
- * argv array is the encodings string, consisting of comma separated encodings like 'tight,ultra,raw'.</td></tr>
- * <tr><td>-compress</td><td>Set the compression level. The next item in the
- * argv array is the compression level as an integer. Ranges from 0 (lowest) to 9 (highest).
- * </td></tr>
- * <tr><td>-scale</td><td>Set the scaling level. The next item in the
- * argv array is the scaling level as an integer. The screen will be scaled down by this factor.</td></tr>
- * <tr><td>-qosdscp</td><td>Set the Quality of Service Differentiated Services
- * Code Point (QoS DSCP). The next item in the argv array is the code point as
- * an integer.</td></tr>
- * <tr><td>-repeaterdest</td><td>Set a VNC repeater address. The next item in the argv array is
- * the repeater's address as a string.</td></tr>
- * </table>
- *
- * The host may include a port number (delimited by a ':').
- * @param client The client to initialize
- * @param argc The number of arguments to the initializer
- * @param argv The arguments to the initializer as an array of NULL terminated
- * strings
- * @return true if the client was initialized successfully, false otherwise.
- */
-rfbBool rfbInitClient(rfbClient* client,int* argc,char** argv);
 /**
  * Cleans up the client structure and releases the memory allocated for it. You
  * should call this when you're done with the rfbClient structure that you

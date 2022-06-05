@@ -78,7 +78,6 @@ sources = [
 	'src/buffer.c',
 	'src/open-h264.c',
 	'src/cursor.c',
-	'src/listen.c',
 	'src/rfbproto.c',
 	'src/sockets.c',
 	'src/vncviewer.c',
