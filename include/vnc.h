@@ -47,12 +47,15 @@ struct vnc_client {
 
 	void* userdata;
 	struct pixman_region16 damage;
+
+	bool handler_lock;
 };
 
 struct vnc_client* vnc_client_create(void);
 void vnc_client_destroy(struct vnc_client* self);
 
 int vnc_client_connect(struct vnc_client* self, const char* address, int port);
+int vnc_client_init(struct vnc_client* self);
 
 int vnc_client_set_pixel_format(struct vnc_client* self, uint32_t format);
 
