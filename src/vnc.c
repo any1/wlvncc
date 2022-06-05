@@ -36,8 +36,6 @@
 extern const unsigned short code_map_linux_to_qnum[];
 extern const unsigned int code_map_linux_to_qnum_len;
 
-rfbBool vnc_client_set_format_and_encodings(rfbClient* client);
-
 static uint64_t vnc_client_htonll(uint64_t x)
 {
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -262,7 +260,7 @@ int vnc_client_init(struct vnc_client* self)
 	if (!client->MallocFrameBuffer(client))
 		goto failure;
 
-	if (!vnc_client_set_format_and_encodings(client))
+	if (!SetFormatAndEncodings(client))
 		goto failure;
 
 	if (client->updateRect.x < 0) {

@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2022 Andri Yngvason.  All Rights Reserved.
  *  Copyright (C) 2000-2002 Constantin Kaplinsky.  All Rights Reserved.
  *  Copyright (C) 2000 Tridia Corporation.  All Rights Reserved.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
@@ -33,7 +34,9 @@
 #include <sys/stat.h>
 #include <pwd.h>
 #include <errno.h>
-#include <rfb/rfbclient.h>
+#include <assert.h>
+
+#include "rfb/rfbclient.h"
 #ifdef LIBVNCSERVER_HAVE_LIBZ
 #include <zlib.h>
 #ifdef __CHECKER__
@@ -1220,221 +1223,163 @@ InitialiseRFBConnection(rfbClient* client)
 rfbBool
 SetFormatAndEncodings(rfbClient* client)
 {
-  rfbSetPixelFormatMsg spf;
-  union {
-    char bytes[sz_rfbSetEncodingsMsg + MAX_ENCODINGS*4];
-    rfbSetEncodingsMsg msg;
-  } buf;
+	assert(client->appData.encodingsString);
 
-  rfbSetEncodingsMsg *se = &buf.msg;
-  uint32_t *encs = (uint32_t *)(&buf.bytes[sz_rfbSetEncodingsMsg]);
-  int len = 0;
-  rfbBool requestCompressLevel = FALSE;
-  rfbBool requestQualityLevel = FALSE;
-  rfbBool requestLastRectEncoding = FALSE;
-  rfbClientProtocolExtension* e;
+	rfbSetPixelFormatMsg spf;
+	union {
+		char bytes[sz_rfbSetEncodingsMsg + MAX_ENCODINGS*4];
+		rfbSetEncodingsMsg msg;
+	} buf;
 
-  if (!SupportsClient2Server(client, rfbSetPixelFormat)) return TRUE;
+	rfbSetEncodingsMsg *se = &buf.msg;
+	uint32_t *encs = (uint32_t *)(&buf.bytes[sz_rfbSetEncodingsMsg]);
+	int len = 0;
+	rfbBool requestCompressLevel = FALSE;
+	rfbBool requestQualityLevel = FALSE;
+	rfbBool requestLastRectEncoding = FALSE;
 
-  spf.type = rfbSetPixelFormat;
-  spf.pad1 = 0;
-  spf.pad2 = 0;
-  spf.format = client->format;
-  spf.format.redMax = rfbClientSwap16IfLE(spf.format.redMax);
-  spf.format.greenMax = rfbClientSwap16IfLE(spf.format.greenMax);
-  spf.format.blueMax = rfbClientSwap16IfLE(spf.format.blueMax);
+	if (!SupportsClient2Server(client, rfbSetPixelFormat))
+		return TRUE;
 
-  if (!WriteToRFBServer(client, (char *)&spf, sz_rfbSetPixelFormatMsg))
-    return FALSE;
+	spf.type = rfbSetPixelFormat;
+	spf.pad1 = 0;
+	spf.pad2 = 0;
+	spf.format = client->format;
+	spf.format.redMax = rfbClientSwap16IfLE(spf.format.redMax);
+	spf.format.greenMax = rfbClientSwap16IfLE(spf.format.greenMax);
+	spf.format.blueMax = rfbClientSwap16IfLE(spf.format.blueMax);
+
+	if (!WriteToRFBServer(client, (char *)&spf, sz_rfbSetPixelFormatMsg))
+		return FALSE;
 
 
-  if (!SupportsClient2Server(client, rfbSetEncodings)) return TRUE;
+	if (!SupportsClient2Server(client, rfbSetEncodings))
+		return TRUE;
 
-  se->type = rfbSetEncodings;
-  se->pad = 0;
-  se->nEncodings = 0;
+	se->type = rfbSetEncodings;
+	se->pad = 0;
+	se->nEncodings = 0;
 
-  if (client->appData.encodingsString) {
-    const char *encStr = client->appData.encodingsString;
-    int encStrLen;
-    do {
-      const char *nextEncStr = strchr(encStr, ' ');
-      if (nextEncStr) {
-	encStrLen = nextEncStr - encStr;
-	nextEncStr++;
-      } else {
-	encStrLen = strlen(encStr);
-      }
+	const char *encStr = client->appData.encodingsString;
+	int encStrLen;
+	do {
+		const char *nextEncStr = strchr(encStr, ',');
+		if (nextEncStr) {
+			encStrLen = nextEncStr - encStr;
+			nextEncStr++;
+		} else {
+			encStrLen = strlen(encStr);
+		}
 
-      if (strncasecmp(encStr,"raw",encStrLen) == 0) {
-	encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingRaw);
-      } else if (strncasecmp(encStr,"copyrect",encStrLen) == 0) {
-	encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingCopyRect);
+		if (strncasecmp(encStr,"raw",encStrLen) == 0) {
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingRaw);
+		} else if (strncasecmp(encStr,"copyrect",encStrLen) == 0) {
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingCopyRect);
 #ifdef LIBVNCSERVER_HAVE_LIBZ
 #ifdef LIBVNCSERVER_HAVE_LIBJPEG
-      } else if (strncasecmp(encStr,"tight",encStrLen) == 0) {
-	encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingTight);
-	requestLastRectEncoding = TRUE;
-	if (client->appData.compressLevel >= 0 && client->appData.compressLevel <= 9)
-	  requestCompressLevel = TRUE;
-	if (client->appData.enableJPEG)
-	  requestQualityLevel = TRUE;
+		} else if (strncasecmp(encStr,"tight",encStrLen) == 0) {
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingTight);
+			requestLastRectEncoding = TRUE;
+			if (client->appData.compressLevel >= 0 && client->appData.compressLevel <= 9)
+				requestCompressLevel = TRUE;
+			if (client->appData.enableJPEG)
+				requestQualityLevel = TRUE;
 #endif
 #endif
-      } else if (strncasecmp(encStr,"hextile",encStrLen) == 0) {
-	encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingHextile);
+		} else if (strncasecmp(encStr,"hextile",encStrLen) == 0) {
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingHextile);
 #ifdef LIBVNCSERVER_HAVE_LIBZ
-      } else if (strncasecmp(encStr,"zlib",encStrLen) == 0) {
-	encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingZlib);
-	if (client->appData.compressLevel >= 0 && client->appData.compressLevel <= 9)
-	  requestCompressLevel = TRUE;
-      } else if (strncasecmp(encStr,"zlibhex",encStrLen) == 0) {
-	encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingZlibHex);
-	if (client->appData.compressLevel >= 0 && client->appData.compressLevel <= 9)
-	  requestCompressLevel = TRUE;
-      } else if (strncasecmp(encStr,"trle",encStrLen) == 0) {
-	encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingTRLE);
-      } else if (strncasecmp(encStr,"zrle",encStrLen) == 0) {
-	encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingZRLE);
-      } else if (strncasecmp(encStr,"zywrle",encStrLen) == 0) {
-	encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingZYWRLE);
-	requestQualityLevel = TRUE;
+		} else if (strncasecmp(encStr,"zlib",encStrLen) == 0) {
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingZlib);
+			if (client->appData.compressLevel >= 0 && client->appData.compressLevel <= 9)
+				requestCompressLevel = TRUE;
+		} else if (strncasecmp(encStr,"zlibhex",encStrLen) == 0) {
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingZlibHex);
+			if (client->appData.compressLevel >= 0 && client->appData.compressLevel <= 9)
+				requestCompressLevel = TRUE;
+		} else if (strncasecmp(encStr,"trle",encStrLen) == 0) {
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingTRLE);
+		} else if (strncasecmp(encStr,"zrle",encStrLen) == 0) {
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingZRLE);
+		} else if (strncasecmp(encStr,"zywrle",encStrLen) == 0) {
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingZYWRLE);
+			requestQualityLevel = TRUE;
 #endif
-      } else if ((strncasecmp(encStr,"ultra",encStrLen) == 0) || (strncasecmp(encStr,"ultrazip",encStrLen) == 0)) {
-        /* There are 2 encodings used in 'ultra' */
-        encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingUltra);
-        encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingUltraZip);
-      } else if (strncasecmp(encStr,"corre",encStrLen) == 0) {
-	encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingCoRRE);
-      } else if (strncasecmp(encStr,"rre",encStrLen) == 0) {
-	encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingRRE);
-      } else {
-	rfbClientLog("Unknown encoding '%.*s'\n",encStrLen,encStr);
-      }
+		} else if ((strncasecmp(encStr,"ultra",encStrLen) == 0) || (strncasecmp(encStr,"ultrazip",encStrLen) == 0)) {
+			/* There are 2 encodings used in 'ultra' */
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingUltra);
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingUltraZip);
+		} else if (strncasecmp(encStr,"corre",encStrLen) == 0) {
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingCoRRE);
+		} else if (strncasecmp(encStr,"rre",encStrLen) == 0) {
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingRRE);
+		} else if (strncasecmp(encStr,"open-h264",encStrLen) == 0) {
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(50);
+		} else {
+			rfbClientLog("Unknown encoding '%.*s'\n",encStrLen,encStr);
+		}
 
-      encStr = nextEncStr;
-    } while (encStr && se->nEncodings < MAX_ENCODINGS);
+		encStr = nextEncStr;
+	} while (encStr && se->nEncodings < MAX_ENCODINGS);
 
-    if (se->nEncodings < MAX_ENCODINGS && requestCompressLevel) {
-      encs[se->nEncodings++] = rfbClientSwap32IfLE(client->appData.compressLevel +
-					  rfbEncodingCompressLevel0);
-    }
+	if (se->nEncodings < MAX_ENCODINGS && requestCompressLevel) {
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(client->appData.compressLevel +
+				rfbEncodingCompressLevel0);
+	}
 
-    if (se->nEncodings < MAX_ENCODINGS && requestQualityLevel) {
-      if (client->appData.qualityLevel < 0 || client->appData.qualityLevel > 9)
-        client->appData.qualityLevel = 5;
-      encs[se->nEncodings++] = rfbClientSwap32IfLE(client->appData.qualityLevel +
-					  rfbEncodingQualityLevel0);
-    }
-  }
-  else {
-    if (SameMachine(client->sock)) {
-      /* TODO:
-      if (!tunnelSpecified) {
-      */
-      rfbClientLog("Same machine: preferring raw encoding\n");
-      encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingRaw);
-      /*
-      } else {
-	rfbClientLog("Tunneling active: preferring tight encoding\n");
-      }
-      */
-    }
+	if (se->nEncodings < MAX_ENCODINGS && requestQualityLevel) {
+		if (client->appData.qualityLevel < 0 || client->appData.qualityLevel > 9)
+			client->appData.qualityLevel = 5;
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(client->appData.qualityLevel +
+				rfbEncodingQualityLevel0);
+	}
 
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingCopyRect);
-#ifdef LIBVNCSERVER_HAVE_LIBZ
-#ifdef LIBVNCSERVER_HAVE_LIBJPEG
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingTight);
-    requestLastRectEncoding = TRUE;
-#endif
-#endif
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingHextile);
-#ifdef LIBVNCSERVER_HAVE_LIBZ
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingZlib);
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingZRLE);
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingZYWRLE);
-#endif
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingUltra);
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingUltraZip);
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingCoRRE);
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingRRE);
+	/* Remote Cursor Support (local to viewer) */
+	if (client->appData.useRemoteCursor) {
+		if (se->nEncodings < MAX_ENCODINGS)
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingXCursor);
+		if (se->nEncodings < MAX_ENCODINGS)
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingRichCursor);
+		if (se->nEncodings < MAX_ENCODINGS)
+			encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingPointerPos);
+	}
 
-    if (client->appData.compressLevel >= 0 && client->appData.compressLevel <= 9) {
-      encs[se->nEncodings++] = rfbClientSwap32IfLE(client->appData.compressLevel +
-					  rfbEncodingCompressLevel0);
-    } else /* if (!tunnelSpecified) */ {
-      /* If -tunnel option was provided, we assume that server machine is
-	 not in the local network so we use default compression level for
-	 tight encoding instead of fast compression. Thus we are
-	 requesting level 1 compression only if tunneling is not used. */
-      encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingCompressLevel1);
-    }
+	/* Keyboard State Encodings */
+	if (se->nEncodings < MAX_ENCODINGS)
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingKeyboardLedState);
 
-    if (client->appData.enableJPEG) {
-      if (client->appData.qualityLevel < 0 || client->appData.qualityLevel > 9)
-	client->appData.qualityLevel = 5;
-      encs[se->nEncodings++] = rfbClientSwap32IfLE(client->appData.qualityLevel +
-					  rfbEncodingQualityLevel0);
-    }
-  }
+	/* New Frame Buffer Size */
+	if (se->nEncodings < MAX_ENCODINGS && client->canHandleNewFBSize)
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingNewFBSize);
 
+	/* Last Rect */
+	if (se->nEncodings < MAX_ENCODINGS && requestLastRectEncoding)
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingLastRect);
 
+	/* Server Capabilities */
+	if (se->nEncodings < MAX_ENCODINGS)
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingSupportedMessages);
+	if (se->nEncodings < MAX_ENCODINGS)
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingSupportedEncodings);
+	if (se->nEncodings < MAX_ENCODINGS)
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingServerIdentity);
 
-  /* Remote Cursor Support (local to viewer) */
-  if (client->appData.useRemoteCursor) {
-    if (se->nEncodings < MAX_ENCODINGS)
-      encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingXCursor);
-    if (se->nEncodings < MAX_ENCODINGS)
-      encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingRichCursor);
-    if (se->nEncodings < MAX_ENCODINGS)
-      encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingPointerPos);
-  }
+	/* xvp */
+	if (se->nEncodings < MAX_ENCODINGS)
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingXvp);
 
-  /* Keyboard State Encodings */
-  if (se->nEncodings < MAX_ENCODINGS)
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingKeyboardLedState);
+	if (se->nEncodings < MAX_ENCODINGS)
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingQemuExtendedKeyEvent);
 
-  /* New Frame Buffer Size */
-  if (se->nEncodings < MAX_ENCODINGS && client->canHandleNewFBSize)
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingNewFBSize);
-  if (se->nEncodings < MAX_ENCODINGS)
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingExtDesktopSize);
+	/* pts */
+	if (se->nEncodings < MAX_ENCODINGS)
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(-1000);
 
-  /* Last Rect */
-  if (se->nEncodings < MAX_ENCODINGS && requestLastRectEncoding)
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingLastRect);
+	len = sz_rfbSetEncodingsMsg + se->nEncodings * 4;
 
-  /* Server Capabilities */
-  if (se->nEncodings < MAX_ENCODINGS)
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingSupportedMessages);
-  if (se->nEncodings < MAX_ENCODINGS)
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingSupportedEncodings);
-  if (se->nEncodings < MAX_ENCODINGS)
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingServerIdentity);
+	se->nEncodings = rfbClientSwap16IfLE(se->nEncodings);
 
-  /* xvp */
-  if (se->nEncodings < MAX_ENCODINGS)
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingXvp);
-
-  if (se->nEncodings < MAX_ENCODINGS)
-    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingQemuExtendedKeyEvent);
-
-  /* client extensions */
-  for(e = rfbClientExtensions; e; e = e->next)
-    if(e->encodings) {
-      int* enc;
-      for(enc = e->encodings; *enc; enc++)
-        if(se->nEncodings < MAX_ENCODINGS)
-          encs[se->nEncodings++] = rfbClientSwap32IfLE(*enc);
-    }
-
-  len = sz_rfbSetEncodingsMsg + se->nEncodings * 4;
-
-  se->nEncodings = rfbClientSwap16IfLE(se->nEncodings);
-
-  if (!WriteToRFBServer(client, buf.bytes, len)) return FALSE;
-
-  return TRUE;
+	return WriteToRFBServer(client, buf.bytes, len);
 }
 
 
