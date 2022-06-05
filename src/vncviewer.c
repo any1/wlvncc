@@ -20,20 +20,11 @@
 /*
  * vncviewer.c - the Xt-based VNC viewer.
  */
-
-#ifdef _MSC_VER
-#define strdup _strdup /* Prevent POSIX deprecation warnings */
-#endif
-
-#ifdef __STRICT_ANSI__
-#define _BSD_SOURCE
-#define _POSIX_SOURCE
-#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <rfb/rfbclient.h>
+#include "rfb/rfbclient.h"
 #include "tls.h"
 
 static void Dummy(rfbClient* client) {
