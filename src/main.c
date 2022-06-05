@@ -670,6 +670,14 @@ failure:
 	return -1;
 }
 
+void run_main_loop_once(void)
+{
+	struct aml* aml = aml_get_default();
+	wl_display_flush(wl_display);
+	aml_poll(aml, -1);
+	aml_dispatch(aml);
+}
+
 static int usage(int r)
 {
 	fprintf(r ? stderr : stdout, "\
@@ -842,16 +850,18 @@ int main(int argc, char* argv[])
 	if (init_vnc_client_handler(vnc) < 0)
 		goto vnc_setup_failure;
 
+	if (vnc_client_init(vnc) < 0) {
+		fprintf(stderr, "Failed to connect to server\n");
+		goto vnc_setup_failure;
+	}
+
 	pointers->userdata = vnc;
 	keyboards->userdata = vnc;
 
 	wl_display_dispatch(wl_display);
 
-	while (do_run) {
-		wl_display_flush(wl_display);
-		aml_poll(aml, -1);
-		aml_dispatch(aml);
-	}
+	while (do_run)
+		run_main_loop_once();
 
 	rc = 0;
 	if (window)

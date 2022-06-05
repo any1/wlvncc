@@ -47,6 +47,21 @@ static uint64_t vnc_client_htonll(uint64_t x)
 #endif
 }
 
+static bool vnc_client_lock_handler(struct vnc_client* self)
+{
+	if (self->handler_lock)
+		return false;
+
+	self->handler_lock = true;
+	return true;
+}
+
+static void vnc_client_unlock_handler(struct vnc_client* self)
+{
+	assert(self->handler_lock);
+	self->handler_lock = false;
+}
+
 static rfbBool vnc_client_alloc_fb(rfbClient* client)
 {
 	struct vnc_client* self = rfbClientGetClientData(client, NULL);
@@ -228,20 +243,27 @@ int vnc_client_connect(struct vnc_client* self, const char* address, int port)
 {
 	rfbClient* client = self->client;
 
-	if (!ConnectToRFBServer(client, address, port))
-		return -1;
+	return ConnectToRFBServer(client, address, port) ? 0 : -1;
+}
+
+int vnc_client_init(struct vnc_client* self)
+{
+	int rc = -1;
+	rfbClient* client = self->client;
+
+	vnc_client_lock_handler(self);
 
 	if (!InitialiseRFBConnection(client))
-		return -1;
+		goto failure;
 
 	client->width = client->si.framebufferWidth;
 	client->height = client->si.framebufferHeight;
 
 	if (!client->MallocFrameBuffer(client))
-		return -1;
+		goto failure;
 
 	if (!vnc_client_set_format_and_encodings(client))
-		return -1;
+		goto failure;
 
 	if (client->updateRect.x < 0) {
 		client->updateRect.x = client->updateRect.y = 0;
@@ -253,12 +275,15 @@ int vnc_client_connect(struct vnc_client* self, const char* address, int port)
 				client->updateRect.x, client->updateRect.y,
 				client->updateRect.w, client->updateRect.h,
 				FALSE))
-		return -1;
+		goto failure;
 
 	SendIncrementalFramebufferUpdateRequest(client);
 	SendIncrementalFramebufferUpdateRequest(client);
 
-	return 0;
+	rc = 0;
+failure:
+	vnc_client_unlock_handler(self);
+	return rc;
 }
 
 int vnc_client_set_pixel_format(struct vnc_client* self, uint32_t format)
@@ -335,7 +360,14 @@ const char* vnc_client_get_desktop_name(const struct vnc_client* self)
 
 int vnc_client_process(struct vnc_client* self)
 {
-	return HandleRFBServerMessage(self->client) ? 0 : -1;
+	ReadToBuffer(self->client);
+
+	if (!vnc_client_lock_handler(self))
+		return 0;
+
+	int rc = HandleRFBServerMessage(self->client) ? 0 : -1;
+	vnc_client_unlock_handler(self);
+	return rc;
 }
 
 void vnc_client_send_pointer_event(struct vnc_client* self, int x, int y,
