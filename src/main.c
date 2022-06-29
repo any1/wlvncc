@@ -45,6 +45,10 @@
 #include "renderer.h"
 #include "renderer-egl.h"
 #include "linux-dmabuf-unstable-v1.h"
+#include "time-util.h"
+
+#define CANARY_TICK_PERIOD INT64_C(100000) // us
+#define CANARY_LETHALITY_LEVEL INT64_C(8000) // us
 
 struct window {
 	struct wl_surface* wl_surface;
@@ -70,6 +74,7 @@ static struct wl_list seats;
 struct pointer_collection* pointers;
 struct keyboard_collection* keyboards;
 static int drm_fd = -1;
+static uint64_t last_canary_tick;
 
 static bool have_egl = false;
 
@@ -670,6 +675,35 @@ failure:
 	return -1;
 }
 
+static void on_canary_tick(void* obj)
+{
+	(void)obj;
+
+	uint64_t t = gettime_us();
+	int64_t dt = t - last_canary_tick;
+	last_canary_tick = t;
+
+	int64_t delay = dt - CANARY_TICK_PERIOD;
+
+	// Early ticks are just a result of late ticks...
+	if (delay < CANARY_LETHALITY_LEVEL)
+		return;
+
+	fprintf(stderr, "WARNING: Long delays observed (%"PRIi64"). Something is blocking the main loop\n",
+				delay);
+}
+
+static void create_canary_ticker(void)
+{
+	last_canary_tick = gettime_us();
+
+	struct aml* aml = aml_get_default();
+	struct aml_ticker* ticker = aml_ticker_new(CANARY_TICK_PERIOD / 1000ULL,
+			on_canary_tick, NULL, NULL);
+	aml_start(aml, ticker);
+	aml_unref(ticker);
+}
+
 void run_main_loop_once(void)
 {
 	struct aml* aml = aml_get_default();
@@ -859,6 +893,8 @@ int main(int argc, char* argv[])
 	keyboards->userdata = vnc;
 
 	wl_display_dispatch(wl_display);
+
+	create_canary_ticker();
 
 	while (do_run)
 		run_main_loop_once();
