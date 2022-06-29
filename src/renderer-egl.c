@@ -222,7 +222,10 @@ void egl_finish(void)
 		glDeleteProgram(shader_program_ext);
 	if (shader_program)
 		glDeleteProgram(shader_program);
+	eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE,
+			EGL_NO_CONTEXT);
 	eglDestroyContext(egl_display, egl_context);
+	eglTerminate(egl_display);
 }
 
 static inline void append_attr(EGLint* dst, int* i, EGLint name, EGLint value)
