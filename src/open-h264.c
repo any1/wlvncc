@@ -234,7 +234,7 @@ struct AVFrame* open_h264_decode_rect(struct open_h264* self,
 	if (!context)
 		return NULL;
 
-	char* data = malloc(length);
+	char* data = calloc(1, length + AV_INPUT_BUFFER_PADDING_SIZE);
 	if (!data)
 		return NULL;
 
