@@ -525,6 +525,13 @@ static void get_frame_damage(struct vnc_client* client,
 	}
 }
 
+static void apply_buffer_damage(struct pixman_region16* damage)
+{
+	for (int i = 0; i < 3; ++i)
+		pixman_region_union(&window->buffers[i]->damage,
+				&window->buffers[i]->damage, damage);
+}
+
 void on_vnc_client_update_fb(struct vnc_client* client)
 {
 	if (!pixman_region_not_empty(&client->damage) &&
@@ -550,9 +557,7 @@ void on_vnc_client_update_fb(struct vnc_client* client)
 	region_translate(&damage, &damage_scaled, x_pos, y_pos);
 	pixman_region_fini(&damage_scaled);
 
-	for (int i = 0; i < 3; ++i)
-		pixman_region_union(&window->buffers[i]->damage,
-				&window->buffers[i]->damage, &damage);
+	apply_buffer_damage(&damage);
 
 	int n_rects = 0;
 	struct pixman_box16* box = pixman_region_rectangles(&damage, &n_rects);
