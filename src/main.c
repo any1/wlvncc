@@ -532,6 +532,22 @@ static void apply_buffer_damage(struct pixman_region16* damage)
 				&window->buffers[i]->damage, damage);
 }
 
+static void window_damage_region(struct window* w,
+		struct pixman_region16* damage)
+{
+	int n_rects = 0;
+	struct pixman_box16* box = pixman_region_rectangles(damage, &n_rects);
+
+	for (int i = 0; i < n_rects; ++i) {
+		int x = box[i].x1;
+		int y = box[i].y1;
+		int width = box[i].x2 - x;
+		int height = box[i].y2 - y;
+
+		window_damage(w, x, y, width, height);
+	}
+}
+
 void on_vnc_client_update_fb(struct vnc_client* client)
 {
 	if (!pixman_region_not_empty(&client->damage) &&
@@ -558,18 +574,7 @@ void on_vnc_client_update_fb(struct vnc_client* client)
 	pixman_region_fini(&damage_scaled);
 
 	apply_buffer_damage(&damage);
-
-	int n_rects = 0;
-	struct pixman_box16* box = pixman_region_rectangles(&damage, &n_rects);
-
-	for (int i = 0; i < n_rects; ++i) {
-		int x = box[i].x1;
-		int y = box[i].y1;
-		int width = box[i].x2 - x;
-		int height = box[i].y2 - y;
-
-		window_damage(window, x, y, width, height);
-	}
+	window_damage_region(window, &damage);
 
 	pixman_region_fini(&damage);
 
