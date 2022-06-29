@@ -88,6 +88,7 @@ static void vnc_client_clear_av_frames(struct vnc_client* self)
 {
 	for (int i = 0; i < self->n_av_frames; ++i) {
 		av_frame_unref(self->av_frames[i]->frame);
+		av_frame_free(&self->av_frames[i]->frame);
 		free(self->av_frames[i]);
 	}
 	self->n_av_frames = 0;
@@ -141,6 +142,7 @@ static rfbBool vnc_client_handle_open_h264_rect(rfbClient* client,
 	struct vnc_av_frame* f = calloc(1, sizeof(*f));
 	if (!f) {
 		av_frame_unref(frame);
+		av_frame_free(&frame);
 		return false;
 	}
 
