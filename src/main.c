@@ -512,6 +512,19 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 	return 0;
 }
 
+static void get_frame_damage(struct vnc_client* client,
+		struct pixman_region16* damage)
+{
+	pixman_region_copy(damage, &client->damage);
+
+	for (int i = 0; i < client->n_av_frames; ++i) {
+		const struct vnc_av_frame* frame = client->av_frames[i];
+
+		pixman_region_union_rect(damage, damage, frame->x, frame->y,
+				frame->width, frame->height);
+	}
+}
+
 void on_vnc_client_update_fb(struct vnc_client* client)
 {
 	if (!pixman_region_not_empty(&client->damage) &&
@@ -528,15 +541,7 @@ void on_vnc_client_update_fb(struct vnc_client* client)
 	window_calculate_tranform(window, &scale, &x_pos, &y_pos);
 
 	struct pixman_region16 frame_damage = { 0 };
-	pixman_region_copy(&frame_damage, &client->damage);
-
-	for (int i = 0; i < client->n_av_frames; ++i) {
-		const struct vnc_av_frame* frame = client->av_frames[i];
-
-		pixman_region_union_rect(&frame_damage, &frame_damage,
-				frame->x, frame->y, frame->width,
-				frame->height);
-	}
+	get_frame_damage(client, &frame_damage);
 
 	struct pixman_region16 damage_scaled = { 0 }, damage = { 0 };
 	region_scale(&damage_scaled, &frame_damage, scale);
