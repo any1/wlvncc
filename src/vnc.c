@@ -368,7 +368,13 @@ int vnc_client_process(struct vnc_client* self)
 	if (!vnc_client_lock_handler(self))
 		return 0;
 
-	int rc = HandleRFBServerMessage(self->client) ? 0 : -1;
+	int rc;
+	while (self->client->buffered > 0) {
+		rc = HandleRFBServerMessage(self->client) ? 0 : -1;
+		if (rc < 0)
+			break;
+	}
+
 	vnc_client_unlock_handler(self);
 	return rc;
 }
