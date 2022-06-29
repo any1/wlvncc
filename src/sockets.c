@@ -133,28 +133,29 @@ WriteToRFBServer(rfbClient* client, const char *buf, unsigned int n)
 	// TODO: Dispatch events while waiting
 	while (i < n) {
 		j = write(client->sock, obuf + i, (n - i));
-		if (j <= 0) {
-			if (j < 0) {
-				if (errno == EWOULDBLOCK || errno == EAGAIN) {
-					fds.fd = client->sock;
-					fds.events = POLLIN;
-
-					if (poll(&fds, 1, -1) <= 0) {
-						rfbClientErr("select\n");
-						return FALSE;
-					}
-					j = 0;
-				} else {
-					rfbClientErr("write\n");
-					return FALSE;
-				}
-			} else {
-				rfbClientLog("write failed\n");
-				return FALSE;
-			}
+		if (j > 0) {
+			i += j;
+			continue;
 		}
-		i += j;
+
+		if (j == 0) {
+			rfbClientLog("write failed\n");
+			return FALSE;
+		}
+
+		if (errno != EWOULDBLOCK && errno != EAGAIN) {
+			rfbClientErr("write\n");
+			return FALSE;
+		}
+
+		fds.fd = client->sock;
+		fds.events = POLLOUT;
+		if (poll(&fds, 1, -1) <= 0) {
+			rfbClientErr("poll\n");
+			return FALSE;
+		}
 	}
+
 	return TRUE;
 }
 
