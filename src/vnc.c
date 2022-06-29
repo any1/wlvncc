@@ -27,6 +27,7 @@
 #include "rfb/rfbclient.h"
 #include "vnc.h"
 #include "open-h264.h"
+#include "usdt.h"
 
 #define RFB_ENCODING_OPEN_H264 50
 #define RFB_ENCODING_PTS -1000
@@ -96,6 +97,8 @@ static void vnc_client_finish_update(rfbClient* client)
 {
 	struct vnc_client* self = rfbClientGetClientData(client, NULL);
 	assert(self);
+
+	DTRACE_PROBE2(wlvncc, vnc_client_finish_update, client, self->pts);
 
 	self->update_fb(self);
 
@@ -177,6 +180,8 @@ static rfbBool vnc_client_handle_pts_rect(rfbClient* client,
 		return FALSE;
 
 	self->pts = vnc_client_htonll(pts_msg);
+
+	DTRACE_PROBE1(wlvncc, vnc_client_handle_pts_rect, self->pts);
 
 	return TRUE;
 }
