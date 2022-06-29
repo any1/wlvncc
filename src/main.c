@@ -530,15 +530,12 @@ void on_vnc_client_update_fb(struct vnc_client* client)
 	struct pixman_region16 frame_damage = { 0 };
 	pixman_region_copy(&frame_damage, &client->damage);
 
-	if (client->n_av_frames != 0) {
+	for (int i = 0; i < client->n_av_frames; ++i) {
+		const struct vnc_av_frame* frame = client->av_frames[i];
 
-		for (int i = 0; i < client->n_av_frames; ++i) {
-			const struct vnc_av_frame* frame = client->av_frames[i];
-
-			pixman_region_union_rect(&frame_damage, &frame_damage,
-					frame->x, frame->y, frame->width,
-					frame->height);
-		}
+		pixman_region_union_rect(&frame_damage, &frame_damage,
+				frame->x, frame->y, frame->width,
+				frame->height);
 	}
 
 	struct pixman_region16 damage_scaled = { 0 }, damage = { 0 };
