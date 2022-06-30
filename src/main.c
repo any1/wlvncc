@@ -762,8 +762,10 @@ int main(int argc, char* argv[])
 		goto signal_handler_failure;
 
 	wl_display = wl_display_connect(NULL);
-	if (!wl_display)
+	if (!wl_display) {
+		fprintf(stderr, "Failed to connect to local wayland display\n");
 		goto display_failure;
+	}
 
 	if (init_wayland_event_handler() < 0)
 		goto event_handler_failure;
