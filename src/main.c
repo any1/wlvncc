@@ -255,7 +255,7 @@ static void window_attach(struct window* w, int x, int y)
 	wl_surface_attach(w->wl_surface, w->back_buffer->wl_buffer, x, y);
 }
 
-static void window_calculate_tranform(struct window* w, double* scale,
+static void window_calculate_transform(struct window* w, double* scale,
 		int* x_pos, int* y_pos)
 {
 	double src_width = vnc_client_get_width(w->vnc);
@@ -283,7 +283,7 @@ static void window_transfer_pixels(struct window* w)
 {
 	double scale;
 	int x_pos, y_pos;
-	window_calculate_tranform(w, &scale, &x_pos, &y_pos);
+	window_calculate_transform(w, &scale, &x_pos, &y_pos);
 
 	if (w->vnc->n_av_frames != 0) {
 		// TODO: Don't register open h264 extension unless we have egl
@@ -438,7 +438,7 @@ void on_pointer_event(struct pointer_collection* collection,
 
 	double scale;
 	int x_pos, y_pos;
-	window_calculate_tranform(window, &scale, &x_pos, &y_pos);
+	window_calculate_transform(window, &scale, &x_pos, &y_pos);
 
 	int x = round((wl_fixed_to_double(pointer->x) - (double)x_pos) / scale);
 	int y = round((wl_fixed_to_double(pointer->y) - (double)y_pos) / scale);
@@ -561,7 +561,7 @@ void on_vnc_client_update_fb(struct vnc_client* client)
 
 	double scale;
 	int x_pos, y_pos;
-	window_calculate_tranform(window, &scale, &x_pos, &y_pos);
+	window_calculate_transform(window, &scale, &x_pos, &y_pos);
 
 	struct pixman_region16 frame_damage = { 0 };
 	get_frame_damage(client, &frame_damage);
