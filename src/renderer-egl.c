@@ -451,9 +451,6 @@ void render_image_egl(struct buffer* dst, const struct image* src,
 
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo.fbo);
 
-	glClearColor(0.0, 0.0, 0.0, 1.0);
-	glClear(GL_COLOR_BUFFER_BIT);
-
 	bool is_new_texture = !texture;
 
 	if (!texture)
@@ -510,9 +507,6 @@ void render_av_frames_egl(struct buffer* dst, struct vnc_av_frame** src,
 	fbo_from_gbm_bo(&fbo, dst->bo);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo.fbo);
-
-	glClearColor(0.0, 0.0, 0.0, 1.0);
-	glClear(GL_COLOR_BUFFER_BIT);
 
 	struct pixman_box16* ext = pixman_region_extents(&dst->damage);
 	glScissor(ext->x1, ext->y1, ext->x2 - ext->x1, ext->y2 - ext->y1);
