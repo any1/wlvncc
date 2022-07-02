@@ -1833,16 +1833,19 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 	int bytesPerLine;
 	int i;
 
+	if (client->StartingFrameBufferUpdate)
+		client->StartingFrameBufferUpdate(client);
+
 	if (!ReadFromRFBServer(client, ((char*)&msg->fu) + 1,
 	                       sz_rfbFramebufferUpdateMsg - 1))
-		return FALSE;
+		goto failure;
 
 	msg->fu.nRects = rfbClientSwap16IfLE(msg->fu.nRects);
 
 	for (i = 0; i < msg->fu.nRects; i++) {
 		if (!ReadFromRFBServer(client, (char*)&rect,
 		                       sz_rfbFramebufferUpdateRectHeader))
-			return FALSE;
+			goto failure;
 
 		rect.encoding = rfbClientSwap32IfLE(rect.encoding);
 		if (rect.encoding == rfbEncodingLastRect)
@@ -1859,14 +1862,14 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			if (!HandleCursorShape(client, rect.r.x, rect.r.y,
 			                       rect.r.w, rect.r.h,
 			                       rect.encoding)) {
-				return FALSE;
+				goto failure;
 			}
 			continue;
 		}
 
 		if (rect.encoding == rfbEncodingPointerPos) {
 			if (!client->HandleCursorPos(client, rect.r.x, rect.r.y)) {
-				return FALSE;
+				goto failure;
 			}
 			continue;
 		}
@@ -1884,7 +1887,7 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 
 		if (rect.encoding == rfbEncodingNewFBSize) {
 			if (!ResizeClientBuffer(client, rect.r.w, rect.r.h))
-				return FALSE;
+				goto failure;
 			SendFramebufferUpdateRequest(client, 0, 0, rect.r.w,
 			                             rect.r.h, FALSE);
 			rfbClientLog("Got new framebuffer size: %dx%d\n",
@@ -1901,14 +1904,14 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			rfbExtDesktopSizeMsg eds;
 			if (!ReadFromRFBServer(client, ((char*)&eds),
 			                       sz_rfbExtDesktopSizeMsg)) {
-				return FALSE;
+				goto failure;
 			}
 
 			screens = eds.numberOfScreens;
 			for (loop = 0; loop < screens; loop++) {
 				if (!ReadFromRFBServer(client, ((char*)&screen),
 				                       sz_rfbExtDesktopScreen)) {
-					return FALSE;
+					goto failure;
 				}
 				if (screen.id != 0) {
 					client->screen = screen;
@@ -1921,7 +1924,7 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			                       client->height != rect.r.h)) {
 				if (!ResizeClientBuffer(client, rect.r.w,
 				                        rect.r.h)) {
-					return FALSE;
+					goto failure;
 				}
 				rfbClientLog("Updated desktop size: %dx%d\n",
 				             rect.r.w, rect.r.h);
@@ -1937,7 +1940,7 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			if (!ReadFromRFBServer(client,
 			                       (char*)&client->supportedMessages,
 			                       sz_rfbSupportedMessages))
-				return FALSE;
+				goto failure;
 
 			/* msgs is two sets of bit flags of supported
 			 * messages client2server[] and server2client[] */
@@ -1997,7 +2000,7 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			buffer = malloc(rect.r.w);
 			if (!ReadFromRFBServer(client, buffer, rect.r.w)) {
 				free(buffer);
-				return FALSE;
+				goto failure;
 			}
 
 			/* buffer now contains rect.r.h # of uint32_t
@@ -2014,7 +2017,7 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			if (!buffer ||
 			    !ReadFromRFBServer(client, buffer, rect.r.w)) {
 				free(buffer);
-				return FALSE;
+				goto failure;
 			}
 			buffer[rect.r.w] = 0; /* null terminate, just in case */
 			rfbClientLog("Connected to Server \"%s\"\n", buffer);
@@ -2031,7 +2034,7 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 				             "(%d, %d)\n",
 				             rect.r.w, rect.r.h, rect.r.x,
 				             rect.r.y);
-				return FALSE;
+				goto failure;
 			}
 
 			/* UltraVNC with scaling, will send rectangles
@@ -2073,7 +2076,7 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 
 				if (!ReadFromRFBServer(client, client->buffer,
 				                       bytesPerLine * linesToRead))
-					return FALSE;
+					goto failure;
 
 				client->GotBitmap(
 				        client, (uint8_t*)client->buffer,
@@ -2089,7 +2092,7 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			rfbCopyRect cr;
 
 			if (!ReadFromRFBServer(client, (char*)&cr, sz_rfbCopyRect))
-				return FALSE;
+				goto failure;
 
 			cr.srcX = rfbClientSwap16IfLE(cr.srcX);
 			cr.srcY = rfbClientSwap16IfLE(cr.srcY);
@@ -2111,17 +2114,17 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			case 8:
 				if (!HandleRRE8(client, rect.r.x, rect.r.y,
 				                rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 16:
 				if (!HandleRRE16(client, rect.r.x, rect.r.y,
 				                 rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 32:
 				if (!HandleRRE32(client, rect.r.x, rect.r.y,
 				                 rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			}
 			break;
@@ -2132,17 +2135,17 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			case 8:
 				if (!HandleCoRRE8(client, rect.r.x, rect.r.y,
 				                  rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 16:
 				if (!HandleCoRRE16(client, rect.r.x, rect.r.y,
 				                   rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 32:
 				if (!HandleCoRRE32(client, rect.r.x, rect.r.y,
 				                   rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			}
 			break;
@@ -2153,17 +2156,17 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			case 8:
 				if (!HandleHextile8(client, rect.r.x, rect.r.y,
 				                    rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 16:
 				if (!HandleHextile16(client, rect.r.x, rect.r.y,
 				                     rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 32:
 				if (!HandleHextile32(client, rect.r.x, rect.r.y,
 				                     rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			}
 			break;
@@ -2174,17 +2177,17 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			case 8:
 				if (!HandleUltra8(client, rect.r.x, rect.r.y,
 				                  rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 16:
 				if (!HandleUltra16(client, rect.r.x, rect.r.y,
 				                   rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 32:
 				if (!HandleUltra32(client, rect.r.x, rect.r.y,
 				                   rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			}
 			break;
@@ -2194,17 +2197,17 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			case 8:
 				if (!HandleUltraZip8(client, rect.r.x, rect.r.y,
 				                     rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 16:
 				if (!HandleUltraZip16(client, rect.r.x, rect.r.y,
 				                      rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 32:
 				if (!HandleUltraZip32(client, rect.r.x, rect.r.y,
 				                      rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			}
 			break;
@@ -2215,19 +2218,19 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			case 8:
 				if (!HandleTRLE8(client, rect.r.x, rect.r.y,
 				                 rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 16:
 				if (client->si.format.greenMax > 0x1F) {
 					if (!HandleTRLE16(client, rect.r.x,
 					                  rect.r.y, rect.r.w,
 					                  rect.r.h))
-						return FALSE;
+						goto failure;
 				} else {
 					if (!HandleTRLE15(client, rect.r.x,
 					                  rect.r.y, rect.r.w,
 					                  rect.r.h))
-						return FALSE;
+						goto failure;
 				}
 				break;
 			case 32: {
@@ -2245,23 +2248,23 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 					if (!HandleTRLE24(client, rect.r.x,
 					                  rect.r.y, rect.r.w,
 					                  rect.r.h))
-						return FALSE;
+						goto failure;
 				} else if (!client->format.bigEndian &&
 				           (maxColor & 0xff) == 0) {
 					if (!HandleTRLE24Up(client, rect.r.x,
 					                    rect.r.y, rect.r.w,
 					                    rect.r.h))
-						return FALSE;
+						goto failure;
 				} else if (client->format.bigEndian &&
 				           (maxColor & 0xff000000) == 0) {
 					if (!HandleTRLE24Down(client, rect.r.x,
 					                      rect.r.y, rect.r.w,
 					                      rect.r.h))
-						return FALSE;
+						goto failure;
 				} else if (!HandleTRLE32(client, rect.r.x,
 				                         rect.r.y, rect.r.w,
 				                         rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			}
 			}
@@ -2274,17 +2277,17 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			case 8:
 				if (!HandleZlib8(client, rect.r.x, rect.r.y,
 				                 rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 16:
 				if (!HandleZlib16(client, rect.r.x, rect.r.y,
 				                  rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 32:
 				if (!HandleZlib32(client, rect.r.x, rect.r.y,
 				                  rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			}
 			break;
@@ -2296,17 +2299,17 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			case 8:
 				if (!HandleTight8(client, rect.r.x, rect.r.y,
 				                  rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 16:
 				if (!HandleTight16(client, rect.r.x, rect.r.y,
 				                   rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 32:
 				if (!HandleTight32(client, rect.r.x, rect.r.y,
 				                   rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			}
 			break;
@@ -2321,19 +2324,19 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			case 8:
 				if (!HandleZRLE8(client, rect.r.x, rect.r.y,
 				                 rect.r.w, rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			case 16:
 				if (client->si.format.greenMax > 0x1F) {
 					if (!HandleZRLE16(client, rect.r.x,
 					                  rect.r.y, rect.r.w,
 					                  rect.r.h))
-						return FALSE;
+						goto failure;
 				} else {
 					if (!HandleZRLE15(client, rect.r.x,
 					                  rect.r.y, rect.r.w,
 					                  rect.r.h))
-						return FALSE;
+						goto failure;
 				}
 				break;
 			case 32: {
@@ -2351,23 +2354,23 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 					if (!HandleZRLE24(client, rect.r.x,
 					                  rect.r.y, rect.r.w,
 					                  rect.r.h))
-						return FALSE;
+						goto failure;
 				} else if (!client->format.bigEndian &&
 				           (maxColor & 0xff) == 0) {
 					if (!HandleZRLE24Up(client, rect.r.x,
 					                    rect.r.y, rect.r.w,
 					                    rect.r.h))
-						return FALSE;
+						goto failure;
 				} else if (client->format.bigEndian &&
 				           (maxColor & 0xff000000) == 0) {
 					if (!HandleZRLE24Down(client, rect.r.x,
 					                      rect.r.y, rect.r.w,
 					                      rect.r.h))
-						return FALSE;
+						goto failure;
 				} else if (!HandleZRLE32(client, rect.r.x,
 				                         rect.r.y, rect.r.w,
 				                         rect.r.h))
-					return FALSE;
+					goto failure;
 				break;
 			}
 			}
@@ -2392,7 +2395,7 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			if (!handled) {
 				rfbClientLog("Unknown rect encoding %d\n",
 				             (int)rect.encoding);
-				return FALSE;
+				goto failure;
 			}
 		}
 		}
@@ -2405,12 +2408,18 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 	}
 
 	if (!SendIncrementalFramebufferUpdateRequest(client))
-		return FALSE;
+		goto failure;
 
 	if (client->FinishedFrameBufferUpdate)
 		client->FinishedFrameBufferUpdate(client);
 
 	return TRUE;
+
+failure:
+	if (client->CancelledFrameBufferUpdate)
+		client->CancelledFrameBufferUpdate(client);
+
+	return FALSE;
 }
 
 /*

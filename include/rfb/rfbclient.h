@@ -197,6 +197,8 @@ typedef void (*GotFrameBufferUpdateProc)(struct _rfbClient* client, int x, int y
    @param client The client which finished processing an rfbFramebufferUpdate
  */
 typedef void (*FinishedFrameBufferUpdateProc)(struct _rfbClient* client);
+typedef void (*StartingFrameBufferUpdateProc)(struct _rfbClient* client);
+typedef void (*CancelledFrameBufferUpdateProc)(struct _rfbClient* client);
 typedef char* (*GetPasswordProc)(struct _rfbClient* client);
 typedef rfbCredential* (*GetCredentialProc)(struct _rfbClient* client, int credentialType);
 typedef rfbBool (*MallocFrameBufferProc)(struct _rfbClient* client);
@@ -461,6 +463,9 @@ typedef struct _rfbClient {
          * Used for intended dimensions, rfbClient.width and rfbClient.height are used to manage the real framebuffer dimensions.
 	 */
 	rfbExtDesktopScreen screen;
+
+	StartingFrameBufferUpdateProc StartingFrameBufferUpdate;
+	CancelledFrameBufferUpdateProc CancelledFrameBufferUpdate;
 } rfbClient;
 
 /* cursor.c */
