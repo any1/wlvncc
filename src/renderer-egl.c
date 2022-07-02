@@ -498,6 +498,8 @@ void render_image_egl(struct buffer* dst, const struct image* src,
 
 	glDeleteFramebuffers(1, &fbo.fbo);
 	glDeleteRenderbuffers(1, &fbo.rbo);
+
+	pixman_region_clear(&dst->damage);
 }
 
 void render_av_frames_egl(struct buffer* dst, struct vnc_av_frame** src,
@@ -536,4 +538,6 @@ void render_av_frames_egl(struct buffer* dst, struct vnc_av_frame** src,
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glDeleteFramebuffers(1, &fbo.fbo);
 	glDeleteRenderbuffers(1, &fbo.rbo);
+
+	pixman_region_clear(&dst->damage);
 }
