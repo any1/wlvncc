@@ -86,7 +86,8 @@ static const char *fragment_shader_src =
 "uniform sampler2D u_tex;\n"
 "varying vec2 v_texture;\n"
 "void main() {\n"
-"	gl_FragColor = texture2D(u_tex, v_texture);\n"
+"	vec4 colour = texture2D(u_tex, v_texture);\n"
+"	gl_FragColor = vec4(colour.rgb, 1.0);\n"
 "}\n";
 
 static const char *fragment_shader_ext_src =
