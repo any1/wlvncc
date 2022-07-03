@@ -94,6 +94,26 @@ static void vnc_client_clear_av_frames(struct vnc_client* self)
 	self->n_av_frames = 0;
 }
 
+static void vnc_client_start_update(rfbClient* client)
+{
+	struct vnc_client* self = rfbClientGetClientData(client, NULL);
+	assert(self);
+
+	self->pts = NO_PTS;
+	pixman_region_clear(&self->damage);
+	vnc_client_clear_av_frames(self);
+
+	self->is_updating = true;
+}
+
+static void vnc_client_cancel_update(rfbClient* client)
+{
+	struct vnc_client* self = rfbClientGetClientData(client, NULL);
+	assert(self);
+
+	self->is_updating = false;
+}
+
 static void vnc_client_finish_update(rfbClient* client)
 {
 	struct vnc_client* self = rfbClientGetClientData(client, NULL);
@@ -101,11 +121,9 @@ static void vnc_client_finish_update(rfbClient* client)
 
 	DTRACE_PROBE2(wlvncc, vnc_client_finish_update, client, self->pts);
 
-	self->update_fb(self);
+	self->is_updating = false;
 
-	self->pts = NO_PTS;
-	pixman_region_clear(&self->damage);
-	vnc_client_clear_av_frames(self);
+	self->update_fb(self);
 }
 
 static void vnc_client_got_cut_text(rfbClient* client, const char* text,
@@ -225,6 +243,8 @@ struct vnc_client* vnc_client_create(void)
 	client->MallocFrameBuffer = vnc_client_alloc_fb;
 	client->GotFrameBufferUpdate = vnc_client_update_box;
 	client->FinishedFrameBufferUpdate = vnc_client_finish_update;
+	client->StartingFrameBufferUpdate = vnc_client_start_update;
+	client->CancelledFrameBufferUpdate = vnc_client_cancel_update;
 	client->GotXCutText = vnc_client_got_cut_text;
 
 	self->pts = NO_PTS;

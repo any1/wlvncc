@@ -49,6 +49,7 @@ struct vnc_client {
 	struct pixman_region16 damage;
 
 	bool handler_lock;
+	bool is_updating;
 };
 
 struct vnc_client* vnc_client_create(void);
