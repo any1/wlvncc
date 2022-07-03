@@ -77,3 +77,4 @@ void vnc_client_set_quality_level(struct vnc_client* self, int value);
 void vnc_client_set_compression_level(struct vnc_client* self, int value);
 void vnc_client_send_cut_text(struct vnc_client* self, const char* text,
 		size_t len);
+void vnc_client_clear_av_frames(struct vnc_client* self);

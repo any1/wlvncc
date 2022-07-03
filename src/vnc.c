@@ -84,7 +84,7 @@ static void vnc_client_update_box(rfbClient* client, int x, int y, int width,
 			height);
 }
 
-static void vnc_client_clear_av_frames(struct vnc_client* self)
+void vnc_client_clear_av_frames(struct vnc_client* self)
 {
 	for (int i = 0; i < self->n_av_frames; ++i) {
 		av_frame_unref(self->av_frames[i]->frame);
