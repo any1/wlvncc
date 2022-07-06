@@ -16,11 +16,12 @@
 
 #pragma once
 
+#include "rfb/rfbclient.h"
+
 #include <stdbool.h>
 #include <unistd.h>
 #include <pixman.h>
 #include <wayland-client.h>
-#include <rfb/rfbclient.h>
 
 #define VNC_CLIENT_MAX_AV_FRAMES 64
 

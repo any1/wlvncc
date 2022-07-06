@@ -18,8 +18,9 @@
 
 #define OPEN_H264_MAX_CONTEXTS 64
 
+#include "rfb/rfbclient.h"
+
 #include <stdbool.h>
-#include <rfb/rfbclient.h>
 
 struct AVFrame;
 struct open_h264;

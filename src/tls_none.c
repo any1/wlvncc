@@ -17,9 +17,10 @@
  *  USA.
  */
 
-#include <rfb/rfbclient.h>
-#include <errno.h>
+#include "rfb/rfbclient.h"
 #include "tls.h"
+
+#include <errno.h>
 
 rfbBool HandleAnonTLSAuth(rfbClient* client) 
 {

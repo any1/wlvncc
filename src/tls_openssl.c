@@ -18,8 +18,9 @@
  *  USA.
  */
 
+#include "rfb/rfbclient.h"
+
 #include <stdio.h>
-#include <rfb/rfbclient.h>
 #include <errno.h>
 
 #include <openssl/err.h>

@@ -15,12 +15,12 @@
  */
 
 #include "open-h264.h"
+#include "rfb/rfbclient.h"
 
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
 #include <arpa/inet.h>
-#include <rfb/rfbclient.h>
 #include <libavcodec/avcodec.h>
 
 enum open_h264_flags {

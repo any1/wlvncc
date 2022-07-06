@@ -32,14 +32,15 @@
  * @file rfbclient.h
  */
 
+#include "rfb/rfbproto.h"
+#include "rfb/keysym.h"
+#include "rfb/threading.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
 #include <unistd.h>
-#include <rfb/rfbproto.h>
-#include <rfb/keysym.h>
-#include <rfb/threading.h>
 
 #ifdef LIBVNCSERVER_HAVE_SASL
 #include <sasl/sasl.h>

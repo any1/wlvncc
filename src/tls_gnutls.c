@@ -17,13 +17,13 @@
  *  USA.
  */
 
+#include "rfb/rfbclient.h"
+#include "tls.h"
+
 #include <stdio.h>
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
-#include <rfb/rfbclient.h>
 #include <errno.h>
-#include "tls.h"
-
 
 static const char *rfbTLSPriority = "NORMAL:+DHE-DSS:+RSA:+DHE-RSA:+SRP";
 static const char *rfbAnonTLSPriority= "NORMAL:+ANON-DH";
