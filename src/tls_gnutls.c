@@ -17,7 +17,7 @@
  *  USA.
  */
 
-#include "rfb/rfbclient.h"
+#include "rfbclient.h"
 #include "tls.h"
 
 #include <stdio.h>

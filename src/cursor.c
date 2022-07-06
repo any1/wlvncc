@@ -22,7 +22,7 @@
  * RichCursor preudo-encodings).
  */
 
-#include "rfb/rfbclient.h"
+#include "rfbclient.h"
 
 #define OPER_SAVE     0
 #define OPER_RESTORE  1

@@ -22,7 +22,7 @@
 
 #ifdef LIBVNCSERVER_HAVE_SASL
 
-#include "rfb/rfbclient.h"
+#include "rfbclient.h"
 
 /*
  *  Perform the SASL authentication process

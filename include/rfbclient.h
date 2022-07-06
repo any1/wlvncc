@@ -32,9 +32,9 @@
  * @file rfbclient.h
  */
 
-#include "rfb/rfbproto.h"
-#include "rfb/keysym.h"
-#include "rfb/threading.h"
+#include "rfbproto.h"
+#include "keysym.h"
+#include "threading.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -569,7 +569,7 @@ extern rfbBool SendExtDesktopSize(rfbClient* client, uint16_t width, uint16_t he
  * viewer (i.e. it controls the server), you'll want to send the keys that the
  * user presses to the server. Use this function to do that.
  * @param client The client through which to send the key event
- * @param key An rfbKeySym defined in rfb/keysym.h
+ * @param key An rfbKeySym defined in keysym.h
  * @param down true if this was a key down event, false otherwise
  * @return true if the key event was send successfully, false otherwise
  */
@@ -578,7 +578,7 @@ extern rfbBool SendKeyEvent(rfbClient* client,uint32_t key, rfbBool down);
  * The same as SendKeyEvent, except a key code will be sent along with the
  * symbol if the server supports extended key events.
  * @param client The client through which to send the key event
- * @param keysym An rfbKeySym defined in rfb/keysym.h
+ * @param keysym An rfbKeySym defined in keysym.h
  * @param keycode An XT key code
  * @param down true if this was a key down event, false otherwise
  * @return true if the extended key event is supported and was sent

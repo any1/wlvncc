@@ -31,7 +31,7 @@
 #include <errno.h>
 #include <assert.h>
 
-#include "rfb/rfbclient.h"
+#include "rfbclient.h"
 #ifdef LIBVNCSERVER_HAVE_LIBZ
 #include <zlib.h>
 #ifdef __CHECKER__

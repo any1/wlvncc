@@ -24,7 +24,7 @@
 #include <libdrm/drm_fourcc.h>
 #include <libavutil/frame.h>
 
-#include "rfb/rfbclient.h"
+#include "rfbclient.h"
 #include "vnc.h"
 #include "open-h264.h"
 #include "usdt.h"

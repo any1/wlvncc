@@ -30,7 +30,7 @@
  */
 
 #include <errno.h>
-#include "rfb/rfbclient.h"
+#include "rfbclient.h"
 
 #include "sockets.h"
 

@@ -24,7 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "rfb/rfbclient.h"
+#include "rfbclient.h"
 #include "tls.h"
 
 static void Dummy(rfbClient* client) {

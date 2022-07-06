@@ -18,7 +18,7 @@
 
 #define OPEN_H264_MAX_CONTEXTS 64
 
-#include "rfb/rfbclient.h"
+#include "rfbclient.h"
 
 #include <stdbool.h>
 

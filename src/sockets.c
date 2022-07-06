@@ -29,7 +29,7 @@
 #include <assert.h>
 #include <sys/param.h>
 #include <poll.h>
-#include "rfb/rfbclient.h"
+#include "rfbclient.h"
 #include "sockets.h"
 #include "tls.h"
 #include "sasl.h"

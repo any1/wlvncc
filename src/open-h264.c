@@ -15,7 +15,7 @@
  */
 
 #include "open-h264.h"
-#include "rfb/rfbclient.h"
+#include "rfbclient.h"
 
 #include <stdint.h>
 #include <stdbool.h>

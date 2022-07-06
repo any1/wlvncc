@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "rfb/rfbclient.h"
+#include "rfbclient.h"
 
 #include <stdbool.h>
 #include <unistd.h>
