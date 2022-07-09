@@ -80,7 +80,6 @@ sources = [
 	'src/rfbproto.c',
 	'src/sockets.c',
 	'src/vncviewer.c',
-	'src/turbojpeg.c',
 ]
 
 dependencies = [
@@ -133,6 +132,7 @@ if sasl.found()
 endif
 
 if libjpeg.found()
+	sources += 'src/turbojpeg.c'
 	dependencies += libjpeg
 	config.set('LIBVNCSERVER_HAVE_LIBJPEG', true)
 endif
