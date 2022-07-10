@@ -1409,6 +1409,7 @@ rfbBool SetFormatAndEncodings(rfbClient* client)
 			        rfbClientSwap32IfLE(rfbEncodingRRE);
 		} else if (strncasecmp(encStr, "open-h264", encStrLen) == 0) {
 			encs[se->nEncodings++] = rfbClientSwap32IfLE(50);
+			requestQualityLevel = TRUE;
 		} else {
 			rfbClientLog("Unknown encoding '%.*s'\n", encStrLen,
 			             encStr);
