@@ -461,14 +461,14 @@ void on_pointer_event(struct pointer_collection* collection,
 	if (vertical_steps < 0) {
 		vertical_steps *= -1;
 		scroll_mask |= POINTER_SCROLL_UP;
-	} else {
+	} else if (vertical_steps > 0) {
 		scroll_mask |= POINTER_SCROLL_DOWN;
 	}
 
 	if (horizontal_steps < 0) {
 		horizontal_steps *= -1;
 		scroll_mask |= POINTER_SCROLL_LEFT;
-	} else {
+	} else if (horizontal_steps > 0) {
 		scroll_mask |= POINTER_SCROLL_RIGHT;
 	}
 
