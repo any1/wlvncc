@@ -65,6 +65,7 @@ sources = [
 	'src/main.c',
 	'src/shm.c',
 	'src/seat.c',
+	'src/output.c',
 	'src/pointer.c',
 	'src/keyboard.c',
 	'src/vnc.c',

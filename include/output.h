@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Andri Yngvason
+ * Copyright (c) 2019 - 2022 Andri Yngvason
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,40 +16,21 @@
 
 #pragma once
 
-#include <stdbool.h>
-#include <unistd.h>
+#include <wayland-client.h>
 #include <stdint.h>
-#include <pixman.h>
 
-struct wl_buffer;
-struct gbm_bo;
+struct output {
+	struct wl_output* wl_output;
+	struct wl_list link;
 
-enum buffer_type {
-	BUFFER_UNSPEC = 0,
-	BUFFER_WL_SHM,
-	BUFFER_DMABUF,
-};
-
-struct buffer {
-	enum buffer_type type;
-
-	int width, height;
+	uint32_t id;
 	int32_t scale;
-	size_t size;
-	uint32_t format;
-	struct wl_buffer* wl_buffer;
-	bool is_attached;
-	bool please_clean_up;
-	struct pixman_region16 damage;
-
-	// wl_shm:
-	void* pixels;
-	int stride;
-
-	// dmabuf:
-	struct gbm_bo* bo;
 };
 
-struct buffer* buffer_create_shm(int width, int height, int stride, uint32_t format);
-struct buffer* buffer_create_dmabuf(int width, int height, uint32_t format);
-void buffer_destroy(struct buffer* self);
+struct output* output_new(struct wl_output* wl_output, uint32_t id);
+void output_destroy(struct output* output);
+
+void output_list_destroy(struct wl_list* list);
+struct output* output_find_by_id(struct wl_list* list, uint32_t id);
+int32_t output_list_get_max_scale(const struct wl_list* list);
+

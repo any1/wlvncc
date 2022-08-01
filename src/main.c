@@ -46,9 +46,14 @@
 #include "renderer-egl.h"
 #include "linux-dmabuf-unstable-v1.h"
 #include "time-util.h"
+#include "output.h"
 
 #define CANARY_TICK_PERIOD INT64_C(100000) // us
 #define CANARY_LETHALITY_LEVEL INT64_C(8000) // us
+
+struct point {
+	double x, y;
+};
 
 struct window {
 	struct wl_surface* wl_surface;
@@ -77,6 +82,7 @@ struct zwp_linux_dmabuf_v1* zwp_linux_dmabuf_v1 = NULL;
 struct gbm_device* gbm_device = NULL;
 static struct xdg_wm_base* xdg_wm_base;
 static struct wl_list seats;
+static struct wl_list outputs;
 struct pointer_collection* pointers;
 struct keyboard_collection* keyboards;
 static int drm_fd = -1;
@@ -138,6 +144,17 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 
 		wl_list_insert(&seats, &seat->link);
 		seat->on_capability_change = on_seat_capability_change;
+	} else if (strcmp(interface, "wl_output") == 0) {
+		struct wl_output* wl_output;
+		wl_output = wl_registry_bind(registry, id, &wl_output_interface, 2);
+
+		struct output* output = output_new(wl_output, id);
+		if (!output) {
+			wl_output_destroy(wl_output);
+			return;
+		}
+
+		wl_list_insert(&outputs, &output->link);
 	}
 }
 
@@ -259,6 +276,32 @@ static void window_attach(struct window* w, int x, int y)
 {
 	w->back_buffer->is_attached = true;
 	wl_surface_attach(w->wl_surface, w->back_buffer->wl_buffer, x, y);
+	wl_surface_set_buffer_scale(window->wl_surface,
+			window->back_buffer->scale);
+}
+
+static struct point surface_coord_to_buffer_coord(double x, double y)
+{
+	double scale = output_list_get_max_scale(&outputs);
+
+	struct point result = {
+		.x = round(x * scale),
+		.y = round(y * scale),
+	};
+
+	return result;
+}
+
+static struct point buffer_coord_to_surface_coord(double x, double y)
+{
+	double scale = output_list_get_max_scale(&outputs);
+
+	struct point result = {
+		.x = x / scale,
+		.y = y / scale,
+	};
+
+	return result;
 }
 
 static void window_calculate_transform(struct window* w, double* scale,
@@ -348,22 +391,27 @@ static const struct xdg_surface_listener xdg_surface_listener = {
 	.configure = xdg_surface_configure,
 };
 
-static void window_resize(struct window* w, int width, int height)
+static void window_resize(struct window* w, int width, int height, int scale)
 {
-	if (width == 0 || height == 0)
+	if (width == 0 || height == 0 || scale == 0)
 		return;
 
 	if (w->back_buffer && w->back_buffer->width == width &&
-			w->back_buffer->height == height)
+			w->back_buffer->height == height &&
+			w->back_buffer->scale == scale)
 		return;
 
 	for (int i = 0; i < 3; ++i)
 		buffer_destroy(w->buffers[i]);
 
-	for (int i = 0; i < 3; ++i)
-		w->buffers[i] = have_egl ?
-			buffer_create_dmabuf(width, height, dmabuf_format) :
-			buffer_create_shm(width, height, 4 * width, shm_format);
+	for (int i = 0; i < 3; ++i) {
+		w->buffers[i] = have_egl
+			? buffer_create_dmabuf(scale * width, scale * height,
+					dmabuf_format)
+			: buffer_create_shm(scale * width, scale * height,
+					scale * 4 * width, shm_format);
+		w->buffers[i]->scale = scale;
+	}
 
 	w->back_buffer = w->buffers[0];
 }
@@ -371,7 +419,8 @@ static void window_resize(struct window* w, int width, int height)
 static void xdg_toplevel_configure(void* data, struct xdg_toplevel* toplevel,
 		int32_t width, int32_t height, struct wl_array* state)
 {
-	window_resize(data, width, height);
+	int32_t scale = output_list_get_max_scale(&outputs);
+	window_resize(data, width, height, scale);
 }
 
 static void xdg_toplevel_close(void* data, struct xdg_toplevel* toplevel)
@@ -445,8 +494,12 @@ void on_pointer_event(struct pointer_collection* collection,
 	int x_pos, y_pos;
 	window_calculate_transform(window, &scale, &x_pos, &y_pos);
 
-	int x = round((wl_fixed_to_double(pointer->x) - (double)x_pos) / scale);
-	int y = round((wl_fixed_to_double(pointer->y) - (double)y_pos) / scale);
+	struct point coord = surface_coord_to_buffer_coord(
+			wl_fixed_to_double(pointer->x),
+			wl_fixed_to_double(pointer->y));
+
+	int x = round((coord.x - (double)x_pos) / scale);
+	int y = round((coord.y - (double)y_pos) / scale);
 
 	enum pointer_button_mask pressed = pointer->pressed;
 	int vertical_steps = pointer->vertical_scroll_steps;
@@ -506,7 +559,9 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 	if (!window) {
 		window = window_create(app_id, vnc_client_get_desktop_name(client));
 		window->vnc = client;
-		window_resize(window, width, height);
+
+		int32_t scale = output_list_get_max_scale(&outputs);
+		window_resize(window, width, height, scale);
 	}
 
 	free(window->vnc_fb);
@@ -571,16 +626,24 @@ static void render_from_vnc(void)
 	int x_pos, y_pos;
 	window_calculate_transform(window, &scale, &x_pos, &y_pos);
 
-	struct pixman_region16 damage_scaled = { 0 }, damage = { 0 };
+	struct pixman_region16 damage_scaled = { 0 }, buffer_damage = { 0 },
+			       surface_damage = { 0 };
 	region_scale(&damage_scaled, &window->current_damage, scale);
+	region_translate(&buffer_damage, &damage_scaled, x_pos, y_pos);
+	pixman_region_clear(&damage_scaled);
 
-	region_translate(&damage, &damage_scaled, x_pos, y_pos);
+	double output_scale = output_list_get_max_scale(&outputs);
+	struct point scoord = buffer_coord_to_surface_coord(x_pos, y_pos);
+	region_scale(&damage_scaled, &window->current_damage,
+			scale / output_scale);
+	region_translate(&surface_damage, &damage_scaled, scoord.x, scoord.y);
 	pixman_region_fini(&damage_scaled);
 
-	apply_buffer_damage(&damage);
-	window_damage_region(window, &damage);
+	apply_buffer_damage(&buffer_damage);
+	window_damage_region(window, &surface_damage);
 
-	pixman_region_fini(&damage);
+	pixman_region_fini(&surface_damage);
+	pixman_region_fini(&buffer_damage);
 
 	window_transfer_pixels(window);
 
@@ -877,6 +940,7 @@ int main(int argc, char* argv[])
 		goto registry_failure;
 
 	wl_list_init(&seats);
+	wl_list_init(&outputs);
 
 	wl_registry_add_listener(wl_registry, &registry_listener, wl_display);
 	wl_display_roundtrip(wl_display);
@@ -955,6 +1019,7 @@ int main(int argc, char* argv[])
 vnc_setup_failure:
 	vnc_client_destroy(vnc);
 vnc_failure:
+	output_list_destroy(&outputs);
 	seat_list_destroy(&seats);
 	wl_compositor_destroy(wl_compositor);
 	wl_shm_destroy(wl_shm);
