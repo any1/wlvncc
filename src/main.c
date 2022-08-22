@@ -559,14 +559,6 @@ static void render_from_vnc(void)
 			window->vnc->n_av_frames == 0)
 		return;
 
-	if (window->is_frame_committed)
-		return;
-
-	if (window->back_buffer->is_attached)
-		fprintf(stderr, "Oops, back-buffer is still attached.\n");
-
-	window_attach(window, 0, 0);
-
 	double scale;
 	int x_pos, y_pos;
 	window_calculate_transform(window, &scale, &x_pos, &y_pos);
@@ -578,9 +570,16 @@ static void render_from_vnc(void)
 	pixman_region_fini(&damage_scaled);
 
 	apply_buffer_damage(&damage);
-	window_damage_region(window, &damage);
 
-	pixman_region_fini(&damage);
+	if (window->is_frame_committed)
+		goto done;
+
+	if (window->back_buffer->is_attached)
+		fprintf(stderr, "Oops, back-buffer is still attached.\n");
+
+	window_attach(window, 0, 0);
+
+	window_damage_region(window, &damage);
 
 	window_transfer_pixels(window);
 
@@ -592,6 +591,9 @@ static void render_from_vnc(void)
 
 	pixman_region_clear(&window->current_damage);
 	vnc_client_clear_av_frames(window->vnc);
+
+done:
+	pixman_region_fini(&damage);
 }
 
 void on_vnc_client_update_fb(struct vnc_client* client)
