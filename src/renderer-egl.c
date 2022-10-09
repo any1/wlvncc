@@ -491,7 +491,7 @@ void render_image_egl(struct buffer* dst, const struct image* src,
 
 	glDisable(GL_SCISSOR_TEST);
 
-	glFinish();
+	glFlush();
 
 	glBindTexture(GL_TEXTURE_2D, 0);
 
@@ -534,7 +534,7 @@ void render_av_frames_egl(struct buffer* dst, struct vnc_av_frame** src,
 
 	glDisable(GL_SCISSOR_TEST);
 
-	glFinish();
+	glFlush();
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glDeleteFramebuffers(1, &fbo.fbo);
