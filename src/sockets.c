@@ -38,9 +38,9 @@ void run_main_loop_once(void);
 
 rfbBool errorMessageOnReadFailure = TRUE;
 
-void ReadToBuffer(rfbClient* client) {
+rfbBool ReadToBuffer(rfbClient* client) {
 	if (client->buffered == RFB_BUF_SIZE)
-		return;
+		return FALSE;
 
 	ssize_t size;
 
@@ -61,8 +61,13 @@ void ReadToBuffer(rfbClient* client) {
 				RFB_BUF_SIZE - client->buffered, MSG_DONTWAIT);
 	}
 
+	if (size == 0)
+		return FALSE;
+
 	if (size > 0)
 		client->buffered += size;
+
+	return TRUE;
 }
 
 rfbBool ReadFromRFBServer(rfbClient* client, char *out, unsigned int n)
@@ -73,7 +78,8 @@ rfbBool ReadFromRFBServer(rfbClient* client, char *out, unsigned int n)
 	while (n != 0) {
 		while (n != 0 && client->buffered == 0) {
 			run_main_loop_once();
-			ReadToBuffer(client);
+			if (!ReadToBuffer(client))
+				return FALSE;
 		}
 
 		unsigned int size = MIN(client->buffered, n);

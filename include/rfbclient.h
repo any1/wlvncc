@@ -610,7 +610,7 @@ extern rfbBool SendClientCutText(rfbClient* client,char *str, int len);
  */
 extern rfbBool HandleRFBServerMessage(rfbClient* client);
 
-extern void ReadToBuffer(rfbClient* client);
+extern rfbBool ReadToBuffer(rfbClient* client);
 
 /**
  * Sends a text chat message to the server.

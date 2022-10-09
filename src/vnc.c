@@ -385,7 +385,8 @@ const char* vnc_client_get_desktop_name(const struct vnc_client* self)
 
 int vnc_client_process(struct vnc_client* self)
 {
-	ReadToBuffer(self->client);
+	if (!ReadToBuffer(self->client))
+		return -1;
 
 	if (!vnc_client_lock_handler(self))
 		return 0;
