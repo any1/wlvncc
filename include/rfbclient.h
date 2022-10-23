@@ -737,7 +737,6 @@ extern rfbBool SetNonBlocking(rfbSocket sock);
 extern rfbBool SetBlocking(rfbSocket sock);
 extern rfbBool SetDSCP(rfbSocket sock, int dscp);
 
-extern rfbBool StringToIPAddr(const char *str, unsigned int *addr);
 extern rfbBool SameMachine(rfbSocket sock);
 
 /* vncviewer.c */

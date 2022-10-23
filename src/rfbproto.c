@@ -286,26 +286,13 @@ static rfbBool IsUnixSocket(const char* name)
 
 rfbBool ConnectToRFBServer(rfbClient* client, const char* hostname, int port)
 {
-	if (IsUnixSocket(hostname))
+	if (IsUnixSocket(hostname)) {
 		/* serverHost is a UNIX socket. */
 		client->sock = ConnectClientToUnixSockWithTimeout(
 		        hostname, client->connectTimeout);
-	else {
-#ifdef LIBVNCSERVER_IPv6
+	} else {
 		client->sock = ConnectClientToTcpAddr6WithTimeout(
 		        hostname, port, client->connectTimeout);
-#else
-		unsigned int host;
-
-		/* serverHost is a hostname */
-		if (!StringToIPAddr(hostname, &host)) {
-			rfbClientLog("Couldn't convert '%s' to host address\n",
-			             hostname);
-			return FALSE;
-		}
-		client->sock = ConnectClientToTcpAddrWithTimeout(
-		        host, port, client->connectTimeout);
-#endif
 	}
 
 	if (client->sock == RFB_INVALID_SOCKET) {
@@ -330,20 +317,8 @@ rfbBool ConnectToRFBRepeater(rfbClient* client, const char* repeaterHost,
 	int major, minor;
 	char tmphost[250];
 
-#ifdef LIBVNCSERVER_IPv6
 	client->sock = ConnectClientToTcpAddr6WithTimeout(
 	        repeaterHost, repeaterPort, client->connectTimeout);
-#else
-	unsigned int host;
-	if (!StringToIPAddr(repeaterHost, &host)) {
-		rfbClientLog("Couldn't convert '%s' to host address\n",
-		             repeaterHost);
-		return FALSE;
-	}
-
-	client->sock = ConnectClientToTcpAddrWithTimeout(host, repeaterPort,
-	                                                 client->connectTimeout);
-#endif
 
 	if (client->sock == RFB_INVALID_SOCKET) {
 		rfbClientLog("Unable to connect to VNC repeater\n");

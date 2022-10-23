@@ -180,55 +180,6 @@ static rfbBool WaitForConnected(int socket, unsigned int secs)
 }
 
 rfbSocket
-ConnectClientToTcpAddr(unsigned int host, int port)
-{
-  rfbSocket sock = ConnectClientToTcpAddrWithTimeout(host, port, DEFAULT_CONNECT_TIMEOUT);
-  /* put socket back into blocking mode for compatibility reasons */
-  if (sock != RFB_INVALID_SOCKET) {
-    SetBlocking(sock);
-  }
-  return sock;
-}
-
-rfbSocket
-ConnectClientToTcpAddrWithTimeout(unsigned int host, int port, unsigned int timeout)
-{
-  rfbSocket sock;
-  struct sockaddr_in addr;
-  int one = 1;
-
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons(port);
-  addr.sin_addr.s_addr = host;
-
-  sock = socket(AF_INET, SOCK_STREAM, 0);
-  if (sock == RFB_INVALID_SOCKET) {
-    rfbClientErr("ConnectToTcpAddr: socket (%s)\n",strerror(errno));
-    return RFB_INVALID_SOCKET;
-  }
-
-  if (!SetNonBlocking(sock))
-    return FALSE;
-
-  if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-    if (!((errno == EWOULDBLOCK || errno == EINPROGRESS) && WaitForConnected(sock, timeout))) {
-      rfbClientErr("ConnectToTcpAddr: connect\n");
-      rfbCloseSocket(sock);
-      return RFB_INVALID_SOCKET;
-    }
-  }
-
-  if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY,
-		 (char *)&one, sizeof(one)) < 0) {
-    rfbClientErr("ConnectToTcpAddr: setsockopt\n");
-    rfbCloseSocket(sock);
-    return RFB_INVALID_SOCKET;
-  }
-
-  return sock;
-}
-
-rfbSocket
 ConnectClientToTcpAddr6(const char *hostname, int port)
 {
   rfbSocket sock = ConnectClientToTcpAddr6WithTimeout(hostname, port, DEFAULT_CONNECT_TIMEOUT);
@@ -242,7 +193,6 @@ ConnectClientToTcpAddr6(const char *hostname, int port)
 rfbSocket
 ConnectClientToTcpAddr6WithTimeout(const char *hostname, int port, unsigned int timeout)
 {
-#ifdef LIBVNCSERVER_IPv6
   rfbSocket sock;
   int n;
   struct addrinfo hints, *res, *ressave;
@@ -298,13 +248,6 @@ ConnectClientToTcpAddr6WithTimeout(const char *hostname, int port, unsigned int 
   }
 
   return sock;
-
-#else
-
-  rfbClientErr("ConnectClientToTcpAddr6: IPv6 disabled\n");
-  return RFB_INVALID_SOCKET;
-
-#endif
 }
 
 rfbSocket
@@ -395,12 +338,10 @@ SetDSCP(rfbSocket sock, int dscp)
 
   switch(addr.sa_family)
     {
-#if defined LIBVNCSERVER_IPv6 && defined IPV6_TCLASS
     case AF_INET6:
       level = IPPROTO_IPV6;
       cmd = IPV6_TCLASS;
       break;
-#endif
     case AF_INET:
       level = IPPROTO_IP;
       cmd = IP_TOS;
@@ -418,36 +359,6 @@ SetDSCP(rfbSocket sock, int dscp)
   return TRUE;
 }
 
-
-
-/*
- * StringToIPAddr - convert a host string to an IP address.
- */
-
-rfbBool
-StringToIPAddr(const char *str, unsigned int *addr)
-{
-  struct hostent *hp;
-
-  if (strcmp(str,"") == 0) {
-    *addr = htonl(INADDR_LOOPBACK); /* local */
-    return TRUE;
-  }
-
-  *addr = inet_addr(str);
-
-  if (*addr != -1)
-    return TRUE;
-
-  hp = gethostbyname(str);
-
-  if (hp) {
-    *addr = *(unsigned int *)hp->h_addr;
-    return TRUE;
-  }
-
-  return FALSE;
-}
 
 
 /*
