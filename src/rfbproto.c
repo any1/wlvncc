@@ -286,39 +286,6 @@ static rfbBool IsUnixSocket(const char* name)
 
 rfbBool ConnectToRFBServer(rfbClient* client, const char* hostname, int port)
 {
-	if (client->serverPort == -1) {
-		/* serverHost is a file recorded by vncrec. */
-		const char* magic = "vncLog0.0";
-		char buffer[10];
-		rfbVNCRec* rec = (rfbVNCRec*)malloc(sizeof(rfbVNCRec));
-		if (!rec) {
-			rfbClientLog("Could not allocate rfbVNCRec memory\n");
-			return FALSE;
-		}
-		client->vncRec = rec;
-
-		rec->file = fopen(client->serverHost, "rb");
-		rec->tv.tv_sec = 0;
-		rec->readTimestamp = FALSE;
-		rec->doNotSleep = FALSE;
-
-		if (!rec->file) {
-			rfbClientLog("Could not open %s.\n", client->serverHost);
-			return FALSE;
-		}
-		setbuf(rec->file, NULL);
-
-		if (fread(buffer, 1, strlen(magic), rec->file) != strlen(magic) ||
-		    strncmp(buffer, magic, strlen(magic))) {
-			rfbClientLog("File %s was not recorded by vncrec.\n",
-			             client->serverHost);
-			fclose(rec->file);
-			return FALSE;
-		}
-		client->sock = RFB_INVALID_SOCKET;
-		return TRUE;
-	}
-
 	if (IsUnixSocket(hostname))
 		/* serverHost is a UNIX socket. */
 		client->sock = ConnectClientToUnixSockWithTimeout(
@@ -582,35 +549,9 @@ static rfbBool ReadSupportedSecurityType(rfbClient* client, uint32_t* result,
 static rfbBool HandleVncAuth(rfbClient* client)
 {
 	uint8_t challenge[CHALLENGESIZE];
-	char* passwd = NULL;
-	int i;
 
 	if (!ReadFromRFBServer(client, (char*)challenge, CHALLENGESIZE))
 		return FALSE;
-
-	if (client->serverPort != -1) { /* if not playing a vncrec file */
-		if (client->GetPassword)
-			passwd = client->GetPassword(client);
-
-		if ((!passwd) || (strlen(passwd) == 0)) {
-			rfbClientLog("Reading password failed\n");
-			return FALSE;
-		}
-		if (strlen(passwd) > 8) {
-			passwd[8] = '\0';
-		}
-
-		rfbClientEncryptBytes(challenge, passwd);
-
-		/* Lose the password from memory */
-		for (i = strlen(passwd); i >= 0; i--) {
-			passwd[i] = '\0';
-		}
-		free(passwd);
-
-		if (!WriteToRFBServer(client, (char*)challenge, CHALLENGESIZE))
-			return FALSE;
-	}
 
 	/* Handle the SecurityResult message */
 	if (!rfbHandleAuthResult(client))
@@ -2431,8 +2372,6 @@ rfbBool HandleRFBServerMessage(rfbClient* client)
 {
 	rfbServerToClientMsg msg;
 
-	if (client->serverPort == -1)
-		client->vncRec->readTimestamp = TRUE;
 	if (!ReadFromRFBServer(client, (char*)&msg, 1))
 		return FALSE;
 

@@ -111,9 +111,6 @@ WriteToRFBServer(rfbClient* client, const char *buf, unsigned int n)
 	int err;
 #endif /* LIBVNCSERVER_HAVE_SASL */
 
-	if (client->serverPort==-1)
-		return TRUE; /* vncrec playing */
-
 	if (client->tlsSession) {
 		/* WriteToTLS() will guarantee either everything is written, or error/eof returns */
 		i = WriteToTLS(client, buf, n);

@@ -235,7 +235,7 @@ typedef struct _rfbClient {
 
 	const char* programName;
 	char* serverHost;
-	int serverPort; /**< if -1, then use file recorded by vncrec */
+	int serverPort;
 	rfbBool listenSpecified;
 	int listenPort, flashPort;
 
