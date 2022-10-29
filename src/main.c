@@ -809,7 +809,7 @@ static void create_canary_ticker(void)
 	last_canary_tick = gettime_us();
 
 	struct aml* aml = aml_get_default();
-	struct aml_ticker* ticker = aml_ticker_new(CANARY_TICK_PERIOD / 1000ULL,
+	struct aml_ticker* ticker = aml_ticker_new(CANARY_TICK_PERIOD,
 			on_canary_tick, NULL, NULL);
 	aml_start(aml, ticker);
 	aml_unref(ticker);
@@ -904,6 +904,11 @@ int main(int argc, char* argv[])
 	int port = 5900;
 	if (n_args >= 2)
 		port = atoi(argv[optind + 1]);
+
+	if (aml_unstable_abi_version != AML_UNSTABLE_API) {
+		fprintf(stderr, "libaml is incompatible with current build of wlvncc!\n");
+		abort();
+	}
 
 	struct aml* aml = aml_new();
 	if (!aml)

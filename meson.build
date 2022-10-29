@@ -16,6 +16,7 @@ prefix = get_option('prefix')
 
 c_args = [
 	'-D_GNU_SOURCE',
+	'-DAML_UNSTABLE_API=1',
 ]
 
 if buildtype != 'debug' and buildtype != 'debugoptimized'
