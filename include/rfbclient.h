@@ -225,6 +225,9 @@ typedef char* (*GetUserProc)(struct _rfbClient* client);
 typedef char* (*GetSASLMechanismProc)(struct _rfbClient* client, char* mechlist);
 #endif /* LIBVNCSERVER_HAVE_SASL */
 
+typedef void (*NtpEventProc)(struct _rfbClient* client, uint32_t t0,
+                uint32_t t1, uint32_t t2, uint32_t t3);
+
 typedef struct _rfbClient {
 	uint8_t* frameBuffer;
 	int width, height;
@@ -467,6 +470,8 @@ typedef struct _rfbClient {
 
 	StartingFrameBufferUpdateProc StartingFrameBufferUpdate;
 	CancelledFrameBufferUpdateProc CancelledFrameBufferUpdate;
+
+	NtpEventProc NtpEvent;
 } rfbClient;
 
 /* cursor.c */
@@ -611,6 +616,9 @@ extern rfbBool SendClientCutText(rfbClient* client,char *str, int len);
 extern rfbBool HandleRFBServerMessage(rfbClient* client);
 
 extern rfbBool ReadToBuffer(rfbClient* client);
+
+extern rfbBool SendClientNtpEvent(rfbClient* client, uint32_t t0, uint32_t t1,
+		uint32_t t2, uint32_t t3);
 
 /**
  * Sends a text chat message to the server.

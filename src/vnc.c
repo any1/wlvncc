@@ -136,6 +136,16 @@ static void vnc_client_got_cut_text(rfbClient* client, const char* text,
 		self->cut_text(self, text, len);
 }
 
+static void vnc_client_ntp_event(rfbClient* client, uint32_t t0, uint32_t t1,
+		uint32_t t2, uint32_t t3)
+{
+	struct vnc_client* self = rfbClientGetClientData(client, NULL);
+	assert(self);
+
+	if (self->ntp_event)
+		self->ntp_event(self, t0, t1, t2, t3);
+}
+
 static rfbBool vnc_client_handle_open_h264_rect(rfbClient* client,
 		rfbFramebufferUpdateRectHeader* rect_header)
 {
@@ -246,6 +256,7 @@ struct vnc_client* vnc_client_create(void)
 	client->StartingFrameBufferUpdate = vnc_client_start_update;
 	client->CancelledFrameBufferUpdate = vnc_client_cancel_update;
 	client->GotXCutText = vnc_client_got_cut_text;
+	client->NtpEvent = vnc_client_ntp_event;
 
 	self->pts = NO_PTS;
 
@@ -442,4 +453,10 @@ void vnc_client_send_cut_text(struct vnc_client* self, const char* text,
 {
 	// libvncclient doesn't modify text, so typecast is OK.
 	SendClientCutText(self->client, (char*)text, len);
+}
+
+void vnc_client_send_ntp_event(struct vnc_client* self, uint32_t t0,
+                uint32_t t1, uint32_t t2, uint32_t t3)
+{
+	SendClientNtpEvent(self->client, t0, t1, t2, t3);
 }

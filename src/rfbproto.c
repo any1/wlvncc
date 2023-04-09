@@ -1398,6 +1398,10 @@ rfbBool SetFormatAndEncodings(rfbClient* client)
 	if (se->nEncodings < MAX_ENCODINGS)
 		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingPts);
 
+	/* ntp */
+	if (se->nEncodings < MAX_ENCODINGS)
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingNtp);
+
 	len = sz_rfbSetEncodingsMsg + se->nEncodings * 4;
 
 	se->nEncodings = rfbClientSwap16IfLE(se->nEncodings);
@@ -1740,6 +1744,22 @@ rfbBool SendClientCutText(rfbClient* client, char* str, int len)
 	cct.length = rfbClientSwap32IfLE(len);
 	return (WriteToRFBServer(client, (char*)&cct, sz_rfbClientCutTextMsg) &&
 	        WriteToRFBServer(client, str, len));
+}
+
+rfbBool SendClientNtpEvent(rfbClient* client, uint32_t t0, uint32_t t1,
+		uint32_t t2, uint32_t t3)
+{
+	if (!SupportsClient2Server(client, rfbNtpEvent))
+		return FALSE;
+
+	struct rfbNtpMsg msg = {
+		.type = rfbNtpEvent,
+		.t0 = rfbClientSwap32IfLE(t0),
+		.t1 = rfbClientSwap32IfLE(t1),
+		.t2 = rfbClientSwap32IfLE(t2),
+		.t3 = rfbClientSwap32IfLE(t3),
+	};
+	return WriteToRFBServer(client, (char*)&msg, sizeof(msg));
 }
 
 static rfbBool HandleFramebufferUpdate(rfbClient* client,
@@ -2300,6 +2320,10 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			SetClient2Server(client, rfbQemuEvent);
 			break;
 
+		case rfbEncodingNtp:
+			SetClient2Server(client, rfbNtpEvent);
+			break;
+
 		default: {
 			rfbBool handled = FALSE;
 			rfbClientProtocolExtension* e;
@@ -2337,6 +2361,22 @@ failure:
 		client->CancelledFrameBufferUpdate(client);
 
 	return FALSE;
+}
+
+rfbBool handleNtpEvent(rfbClient* client, struct rfbNtpMsg* msg)
+{
+	if (!ReadFromRFBServer(client, (char*)msg + 1, sizeof(*msg) - 1))
+		return FALSE;
+
+	uint32_t t0 = rfbClientSwap32IfLE(msg->t0);
+	uint32_t t1 = rfbClientSwap32IfLE(msg->t1);
+	uint32_t t2 = rfbClientSwap32IfLE(msg->t2);
+	uint32_t t3 = rfbClientSwap32IfLE(msg->t3);
+
+	if (client->NtpEvent)
+		client->NtpEvent(client, t0, t1, t2, t3);
+
+	return TRUE;
 }
 
 /*
@@ -2526,6 +2566,9 @@ rfbBool HandleRFBServerMessage(rfbClient* client)
 		             client->height);
 		break;
 	}
+
+	case rfbNtpEvent:
+		return handleNtpEvent(client, &msg.ntp);
 
 	default: {
 		rfbBool handled = FALSE;

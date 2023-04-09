@@ -398,8 +398,7 @@ typedef struct {
 #define rfbSetDesktopSize 251
 #define rfbQemuEvent 255
 
-
-
+#define rfbNtpEvent 160
 
 /*****************************************************************************
  *
@@ -499,6 +498,7 @@ typedef struct {
 #define rfbEncodingServerIdentity     0xFFFE0003
 
 #define rfbEncodingPts -1000
+#define rfbEncodingNtp -1001
 
 /*****************************************************************************
  *
@@ -1139,6 +1139,12 @@ typedef struct rfbExtDesktopScreen {
     uint32_t flags;
 } rfbExtDesktopScreen;
 
+struct rfbNtpMsg {
+	uint8_t type;
+	uint8_t padding[3];
+	uint32_t t0, t1, t2, t3;
+};
+
 #define sz_rfbExtDesktopSizeMsg (4)
 #define sz_rfbExtDesktopScreen (16)
 
@@ -1218,17 +1224,18 @@ typedef struct {
  */
 
 typedef union {
-    uint8_t type;
-    rfbFramebufferUpdateMsg fu;
-    rfbSetColourMapEntriesMsg scme;
-    rfbBellMsg b;
-    rfbServerCutTextMsg sct;
+	uint8_t type;
+	rfbFramebufferUpdateMsg fu;
+	rfbSetColourMapEntriesMsg scme;
+	rfbBellMsg b;
+	rfbServerCutTextMsg sct;
 	rfbResizeFrameBufferMsg rsfb;
 	rfbPalmVNCReSizeFrameBufferMsg prsfb; 
 	rfbFileTransferMsg ft;
 	rfbTextChatMsg tc;
 	rfbXvpMsg xvp;
 	rfbExtDesktopSizeMsg eds;
+	struct rfbNtpMsg ntp;
 } rfbServerToClientMsg;
 
 

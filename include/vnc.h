@@ -45,6 +45,8 @@ struct vnc_client {
 	int (*alloc_fb)(struct vnc_client*);
 	void (*update_fb)(struct vnc_client*);
 	void (*cut_text)(struct vnc_client*, const char*, size_t);
+        void (*ntp_event)(struct vnc_client*, uint32_t t0, uint32_t t1,
+                        uint32_t t2, uint32_t t3);
 
 	void* userdata;
 	struct pixman_region16 damage;
@@ -79,3 +81,5 @@ void vnc_client_set_compression_level(struct vnc_client* self, int value);
 void vnc_client_send_cut_text(struct vnc_client* self, const char* text,
 		size_t len);
 void vnc_client_clear_av_frames(struct vnc_client* self);
+void vnc_client_send_ntp_event(struct vnc_client* self, uint32_t t0,
+                uint32_t t1, uint32_t t2, uint32_t t3);
