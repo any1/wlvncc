@@ -1396,7 +1396,7 @@ rfbBool SetFormatAndEncodings(rfbClient* client)
 
 	/* pts */
 	if (se->nEncodings < MAX_ENCODINGS)
-		encs[se->nEncodings++] = rfbClientSwap32IfLE(-1000);
+		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingPts);
 
 	len = sz_rfbSetEncodingsMsg + se->nEncodings * 4;
 

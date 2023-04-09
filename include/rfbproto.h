@@ -498,6 +498,7 @@ typedef struct {
 #define rfbEncodingSupportedEncodings 0xFFFE0002
 #define rfbEncodingServerIdentity     0xFFFE0003
 
+#define rfbEncodingPts -1000
 
 /*****************************************************************************
  *
