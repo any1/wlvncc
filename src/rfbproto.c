@@ -1749,8 +1749,8 @@ rfbBool SendClientCutText(rfbClient* client, char* str, int len)
 rfbBool SendClientNtpEvent(rfbClient* client, uint32_t t0, uint32_t t1,
 		uint32_t t2, uint32_t t3)
 {
-	if (!SupportsClient2Server(client, rfbNtpEvent))
-		return FALSE;
+//	if (!SupportsClient2Server(client, rfbNtpEvent))
+//		return FALSE;
 
 	struct rfbNtpMsg msg = {
 		.type = rfbNtpEvent,
