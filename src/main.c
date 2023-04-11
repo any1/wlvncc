@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 - 2022 Andri Yngvason
+ * Copyright (c) 2020 - 2023 Andri Yngvason
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -47,9 +47,12 @@
 #include "linux-dmabuf-unstable-v1.h"
 #include "time-util.h"
 #include "output.h"
+#include "ntp.h"
+#include "performance.h"
 
 #define CANARY_TICK_PERIOD INT64_C(100000) // us
 #define CANARY_LETHALITY_LEVEL INT64_C(8000) // us
+#define LATENCY_REPORT_PERIOD INT64_C(250000) // us
 
 struct point {
 	double x, y;
@@ -87,6 +90,8 @@ struct pointer_collection* pointers;
 struct keyboard_collection* keyboards;
 static int drm_fd = -1;
 static uint64_t last_canary_tick;
+static struct ntp_client ntp;
+static struct perf perf;
 
 static bool have_egl = false;
 
@@ -608,6 +613,20 @@ static void window_damage_region(struct window* w,
 	}
 }
 
+static void update_frame_latency_stats(void)
+{
+	uint32_t server_pts = window->vnc->pts;
+
+	uint32_t client_pts = 0;
+	if (!ntp_client_translate_server_time(&ntp, &client_pts, server_pts))
+		return;
+
+	uint32_t now = gettime_us();
+	int32_t latency = (int32_t)(now - client_pts);
+
+	perf_sample_buffer_add(perf.frame_latency, latency);
+}
+
 static void render_from_vnc(void)
 {
 	if (!pixman_region_not_empty(&window->current_damage) &&
@@ -652,6 +671,8 @@ static void render_from_vnc(void)
 
 	window_commit(window);
 	window_swap(window);
+
+	update_frame_latency_stats();
 
 	pixman_region_clear(&window->current_damage);
 	vnc_client_clear_av_frames(window->vnc);
@@ -804,6 +825,18 @@ static void on_canary_tick(void* obj)
 				delay);
 }
 
+static void send_ntp_ping(struct ntp_client* ntp_client, uint32_t t0,
+		uint32_t t1, uint32_t t2, uint32_t t3)
+{
+	vnc_client_send_ntp_event(window->vnc, t0, t1, t2, t3);
+}
+
+static void on_ntp_event(struct vnc_client* vnc, uint32_t t0, uint32_t t1,
+		uint32_t t2, uint32_t t3)
+{
+	ntp_client_process_pong(&ntp, t0, t1, t2, t3);
+}
+
 static void create_canary_ticker(void)
 {
 	last_canary_tick = gettime_us();
@@ -811,6 +844,22 @@ static void create_canary_ticker(void)
 	struct aml* aml = aml_get_default();
 	struct aml_ticker* ticker = aml_ticker_new(CANARY_TICK_PERIOD,
 			on_canary_tick, NULL, NULL);
+	aml_start(aml, ticker);
+	aml_unref(ticker);
+}
+
+static void on_latency_report_tick(void* handler)
+{
+	(void)handler;
+
+	perf_dump_latency_report(&perf);
+}
+
+static void create_latency_report_ticker(void)
+{
+	struct aml* aml = aml_get_default();
+	struct aml_ticker* ticker = aml_ticker_new(LATENCY_REPORT_PERIOD,
+			on_latency_report_tick, NULL, NULL);
 	aml_start(aml, ticker);
 	aml_unref(ticker);
 }
@@ -968,8 +1017,11 @@ int main(int argc, char* argv[])
 	if (!vnc)
 		goto vnc_failure;
 
+	vnc->userdata = window;
+
 	vnc->alloc_fb = on_vnc_client_alloc_fb;
 	vnc->update_fb = on_vnc_client_update_fb;
+	vnc->ntp_event = on_ntp_event;
 
 	if (vnc_client_set_pixel_format(vnc, shm_format) < 0) {
 		fprintf(stderr, "Unsupported pixel format\n");
@@ -1008,12 +1060,16 @@ int main(int argc, char* argv[])
 		goto vnc_setup_failure;
 	}
 
+	perf_init(&perf);
+	ntp_client_init(&ntp, send_ntp_ping, window);
+
 	pointers->userdata = vnc;
 	keyboards->userdata = vnc;
 
 	wl_display_dispatch(wl_display);
 
 	create_canary_ticker();
+	create_latency_report_ticker();
 
 	while (do_run)
 		run_main_loop_once();
@@ -1021,6 +1077,10 @@ int main(int argc, char* argv[])
 	rc = 0;
 	if (window)
 		window_destroy(window);
+
+	ntp_client_deinit(&ntp);
+	perf_deinit(&perf);
+
 vnc_setup_failure:
 	vnc_client_destroy(vnc);
 vnc_failure:

@@ -82,6 +82,8 @@ sources = [
 	'src/rfbproto.c',
 	'src/sockets.c',
 	'src/vncviewer.c',
+	'src/ntp.c',
+	'src/performance.c',
 ]
 
 dependencies = [
