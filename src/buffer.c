@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Andri Yngvason
+ * Copyright (c) 2022 - 2023 Andri Yngvason
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,24 +25,22 @@
 #include <gbm.h>
 #include <assert.h>
 
+// TODO: Some buffers needn't be wayland buffers.
+
 /* Origin: main.c */
 extern struct wl_shm* wl_shm;
 extern struct gbm_device* gbm_device;
 extern struct zwp_linux_dmabuf_v1* zwp_linux_dmabuf_v1;
 
-static void buffer_release(void* data, struct wl_buffer* wl_buffer)
+static void buffer_wl_release(void* data, struct wl_buffer* wl_buffer)
 {
 	(void)wl_buffer;
 	struct buffer* self = data;
-	self->is_attached = false;
-
-	if (self->please_clean_up) {
-		buffer_destroy(self);
-	}
+	buffer_release(self);
 }
 
 static const struct wl_buffer_listener buffer_listener = {
-	.release = buffer_release,
+	.release = buffer_wl_release,
 };
 
 struct buffer* buffer_create_shm(int width, int height, int stride,
@@ -54,6 +52,7 @@ struct buffer* buffer_create_shm(int width, int height, int stride,
 	if (!self)
 		return NULL;
 
+	self->ref = 1;
 	self->type = BUFFER_WL_SHM;
 	self->width = width;
 	self->height = height;
@@ -106,6 +105,7 @@ struct buffer* buffer_create_dmabuf(int width, int height, uint32_t format)
 	if (!self)
 		return NULL;
 
+	self->ref = 1;
 	self->type = BUFFER_DMABUF;
 	self->width = width;
 	self->height = height;
@@ -159,9 +159,6 @@ void buffer_destroy(struct buffer* self)
 	if (!self)
 		return;
 
-	if (self->is_attached)
-		self->please_clean_up = true;
-
 	pixman_region_fini(&self->damage);
 	wl_buffer_destroy(self->wl_buffer);
 
@@ -178,4 +175,42 @@ void buffer_destroy(struct buffer* self)
 	}
 
 	free(self);
+}
+
+void buffer_ref(struct buffer* self)
+{
+	++self->ref;
+}
+
+void buffer_unref(struct buffer* self)
+{
+	if (self && --self->ref == 0)
+		buffer_destroy(self);
+}
+
+void buffer_set_release_fn(struct buffer* self,
+		void (*fn)(struct buffer*, void* ud), void* userdata)
+{
+	self->release_fn = fn;
+	self->release_ud = userdata;
+}
+
+void buffer_hold(struct buffer* self)
+{
+	assert(self);
+	++self->hold;
+}
+
+void buffer_release(struct buffer* self)
+{
+	assert(self);
+
+	int hold = --self->hold;
+	if (hold != 0)
+	       return;
+
+	if (self->release_fn)
+		self->release_fn(self, self->release_ud);
+	else
+		buffer_unref(self);
 }

@@ -77,6 +77,7 @@ sources = [
 	'src/renderer.c',
 	'src/renderer-egl.c',
 	'src/buffer.c',
+	'src/buffer-pool.c',
 	'src/open-h264.c',
 	'src/cursor.c',
 	'src/rfbproto.c',

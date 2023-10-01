@@ -42,6 +42,7 @@
 #include "pixels.h"
 #include "region.h"
 #include "buffer.h"
+#include "buffer-pool.h"
 #include "renderer.h"
 #include "renderer-egl.h"
 #include "linux-dmabuf-unstable-v1.h"
@@ -63,9 +64,8 @@ struct window {
 	struct xdg_surface* xdg_surface;
 	struct xdg_toplevel* xdg_toplevel;
 
-	struct buffer* buffers[3];
+	struct buffer_pool* buffers;
 	struct buffer* back_buffer;
-	int buffer_index;
 
 	struct pixman_region16 current_damage;
 
@@ -243,8 +243,10 @@ void on_wayland_event(void* obj)
 		}
 	}
 
-	if (wl_display_dispatch_pending(wl_display) < 0)
+	if (wl_display_dispatch_pending(wl_display) < 0) {
 		fprintf(stderr, "Failed to dispatch pending\n");
+		abort();
+	}
 }
 
 static int init_wayland_event_handler(void)
@@ -279,7 +281,7 @@ static int init_signal_handler(void)
 
 static void window_attach(struct window* w, int x, int y)
 {
-	w->back_buffer->is_attached = true;
+	buffer_hold(w->back_buffer);
 	wl_surface_attach(w->wl_surface, w->back_buffer->wl_buffer, x, y);
 	wl_surface_set_buffer_scale(window->wl_surface,
 			window->back_buffer->scale);
@@ -370,8 +372,9 @@ static void window_commit(struct window* w)
 
 static void window_swap(struct window* w)
 {
-	w->buffer_index = (w->buffer_index + 1) % 3;
-	w->back_buffer = w->buffers[w->buffer_index];
+	buffer_unref(w->back_buffer);
+	w->back_buffer = buffer_pool_acquire(w->buffers);
+	buffer_ref(w->back_buffer);
 }
 
 static void window_damage(struct window* w, int x, int y, int width, int height)
@@ -401,24 +404,19 @@ static void window_resize(struct window* w, int width, int height, int scale)
 	if (width == 0 || height == 0 || scale == 0)
 		return;
 
-	if (w->back_buffer && w->back_buffer->width == width &&
-			w->back_buffer->height == height &&
-			w->back_buffer->scale == scale)
-		return;
-
-	for (int i = 0; i < 3; ++i)
-		buffer_destroy(w->buffers[i]);
-
-	for (int i = 0; i < 3; ++i) {
-		w->buffers[i] = have_egl
-			? buffer_create_dmabuf(scale * width, scale * height,
-					dmabuf_format)
-			: buffer_create_shm(scale * width, scale * height,
-					scale * 4 * width, shm_format);
-		w->buffers[i]->scale = scale;
+	uint32_t format = have_egl ? dmabuf_format : shm_format;
+	if (!w->buffers) {
+		enum buffer_type type = have_egl ? BUFFER_DMABUF : BUFFER_WL_SHM;
+		w->buffers = buffer_pool_create(type, scale * width,
+				scale * height, format, scale * 4 * width,
+				scale);
+	} else {
+		buffer_pool_resize(w->buffers, scale * width, scale * height,
+				format, scale * 4 * width, scale);
 	}
 
-	w->back_buffer = w->buffers[0];
+	w->back_buffer = buffer_pool_acquire(w->buffers);
+	buffer_ref(w->back_buffer);
 }
 
 static void xdg_toplevel_configure(void* data, struct xdg_toplevel* toplevel,
@@ -479,9 +477,8 @@ wl_surface_failure:
 
 static void window_destroy(struct window* w)
 {
-	for (int i = 0; i < 3; ++i)
-		buffer_destroy(w->buffers[i]);
-
+	buffer_unref(w->back_buffer);
+	buffer_pool_destroy(w->buffers);
 	free(w->vnc_fb);
 	xdg_toplevel_destroy(w->xdg_toplevel);
 	xdg_surface_destroy(w->xdg_surface);
@@ -592,9 +589,7 @@ static void get_frame_damage(struct vnc_client* client,
 
 static void apply_buffer_damage(struct pixman_region16* damage)
 {
-	for (int i = 0; i < 3; ++i)
-		pixman_region_union(&window->buffers[i]->damage,
-				&window->buffers[i]->damage, damage);
+	buffer_pool_damage_all(window->buffers, damage);
 }
 
 static void window_damage_region(struct window* w,
@@ -635,9 +630,6 @@ static void render_from_vnc(void)
 
 	if (window->is_frame_committed)
 		return;
-
-	if (window->back_buffer->is_attached)
-		fprintf(stderr, "Oops, back-buffer is still attached.\n");
 
 	window_attach(window, 0, 0);
 
