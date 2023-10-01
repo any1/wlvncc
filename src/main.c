@@ -678,14 +678,14 @@ static void render_from_vnc(void)
 	vnc_client_clear_av_frames(window->vnc);
 }
 
-void on_vnc_client_update_fb(struct vnc_client* client)
+void on_vnc_client_update_fb_immediate(struct vnc_client* client)
 {
 	get_frame_damage(window->vnc, &window->current_damage);
 	render_from_vnc();
 }
 
-static void handle_frame_callback(void* data, struct wl_callback* callback,
-		uint32_t time)
+static void handle_frame_callback_immediate(void* data,
+		struct wl_callback* callback, uint32_t time)
 {
 	wl_callback_destroy(callback);
 	window->is_frame_committed = false;
@@ -694,14 +694,14 @@ static void handle_frame_callback(void* data, struct wl_callback* callback,
 		render_from_vnc();
 }
 
-static const struct wl_callback_listener frame_listener = {
-	.done = handle_frame_callback
+static const struct wl_callback_listener frame_listener_immediate = {
+	.done = handle_frame_callback_immediate
 };
 
 static void register_frame_callback(void)
 {
 	struct wl_callback* callback = wl_surface_frame(window->wl_surface);
-	wl_callback_add_listener(callback, &frame_listener, NULL);
+	wl_callback_add_listener(callback, &frame_listener_immediate, NULL);
 }
 
 void on_vnc_client_event(void* obj)
@@ -1020,7 +1020,7 @@ int main(int argc, char* argv[])
 	vnc->userdata = window;
 
 	vnc->alloc_fb = on_vnc_client_alloc_fb;
-	vnc->update_fb = on_vnc_client_update_fb;
+	vnc->update_fb = on_vnc_client_update_fb_immediate;
 	vnc->ntp_event = on_ntp_event;
 
 	if (vnc_client_set_pixel_format(vnc, shm_format) < 0) {
