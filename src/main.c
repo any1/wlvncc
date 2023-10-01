@@ -712,11 +712,15 @@ void on_vnc_client_update_fb_queued(struct vnc_client* client)
 	struct buffer* frame = buffer_pool_acquire(w->frame_pool);
 	assert(frame);
 
+	// TODO: Implement damage tracking
+	pixman_region_union_rect(&damage, &damage, 0, 0, frame->width, frame->height);
+
 	buffer_pool_damage_all(w->frame_pool, &damage);
-	pixman_region_union(&w->current_damage, &w->current_damage, &damage);
 
 	if (!w->is_not_first_frame) {
 		w->is_not_first_frame = true;
+		pixman_region_union(&w->current_damage, &w->current_damage,
+				&damage);
 		render_from_vnc();
 	}
 
@@ -802,14 +806,17 @@ static struct buffer* choose_frame(struct window* w)
 }
 
 // TODO: Discard all queued frames on exit
-static void discard_older_frames(struct window* w, int32_t pts)
+static void discard_older_frames(struct window* w, struct buffer* chosen)
 {
 	while (!TAILQ_EMPTY(&w->frame_queue)) {
 		struct buffer* frame = TAILQ_FIRST(&w->frame_queue);
-		int32_t diff = frame->pts - pts;
+		int32_t diff = frame->pts - chosen->pts;
 		if (diff >= 0) {
 			return;
 		}
+
+		pixman_region_union(&chosen->damage, &chosen->damage,
+				&frame->damage);
 
 		TAILQ_REMOVE(&w->frame_queue, frame, queue_link);
 		buffer_release(frame);
@@ -827,15 +834,15 @@ static void handle_frame_callback_queued(void* data,
 	if (!frame)
 		return;
 
-	discard_older_frames(window, frame->pts);
+	discard_older_frames(window, frame);
+	pixman_region_union(&window->current_damage, &window->current_damage,
+			&frame->damage);
 
-	if (!TAILQ_EMPTY(&window->frame_queue)) {
-		register_frame_callback();
-	}
-
-	// TODO: If chosen frame has already been rendered, do nothing
+	// TODO: Try not to render frames that are already rendered.
 
 	window_attach(window, 0, 0);
+
+	register_frame_callback();
 
 	// TODO: Consolidate all this scaling and translating
 	double scale;
