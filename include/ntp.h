@@ -57,3 +57,5 @@ bool ntp_client_get_best_sample(const struct ntp_client* self,
 
 bool ntp_client_translate_server_time(const struct ntp_client* self,
 		uint32_t* dst, const uint32_t t);
+
+uint32_t ntp_client_get_jitter(const struct ntp_client* self);

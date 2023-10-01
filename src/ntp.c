@@ -118,3 +118,15 @@ bool ntp_client_translate_server_time(const struct ntp_client* self,
 	*dst = (int32_t)t - sample.theta;
 	return true;
 }
+
+uint32_t ntp_client_get_jitter(const struct ntp_client* self)
+{
+	uint32_t max_delta = 0;
+	for (int i = 0; i < self->sample_count; ++i) {
+		const struct ntp_sample *sample = &self->samples[i];
+		if (sample->delta > max_delta) {
+			max_delta = sample->delta;
+		}
+	}
+	return max_delta;
+}
