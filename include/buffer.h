@@ -36,6 +36,8 @@ struct buffer {
 	int ref;
 	int hold;
 
+	TAILQ_ENTRY(buffer) queue_link;
+
 	LIST_ENTRY(buffer) registry_link;
 	TAILQ_ENTRY(buffer) pool_link;
 
@@ -50,6 +52,8 @@ struct buffer {
 	uint32_t format;
 	struct wl_buffer* wl_buffer;
 	struct pixman_region16 damage;
+
+	int32_t pts;
 
 	// wl_shm:
 	void* pixels;

@@ -59,6 +59,8 @@ struct point {
 	double x, y;
 };
 
+TAILQ_HEAD(frame_queue, buffer);
+
 struct window {
 	struct wl_surface* wl_surface;
 	struct xdg_surface* xdg_surface;
@@ -69,10 +71,15 @@ struct window {
 
 	struct pixman_region16 current_damage;
 
+	struct buffer_pool* frame_pool;
+	struct frame_queue frame_queue;
+
 	struct vnc_client* vnc;
 	void* vnc_fb;
 
 	bool is_frame_committed;
+	bool is_frame_callback_registered;
+	bool is_not_first_frame;
 };
 
 static void register_frame_callback(void);
@@ -562,6 +569,8 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 		window = window_create(app_id, vnc_client_get_desktop_name(client));
 		window->vnc = client;
 
+		TAILQ_INIT(&window->frame_queue);
+
 		int32_t scale = output_list_get_max_scale(&outputs);
 		window_resize(window, width, height, scale);
 	}
@@ -676,6 +685,80 @@ void on_vnc_client_update_fb_immediate(struct vnc_client* client)
 	render_from_vnc();
 }
 
+void on_vnc_client_update_fb_queued(struct vnc_client* client)
+{
+	struct window* w = window;
+	struct pixman_region16 damage;
+	pixman_region_init(&damage);
+
+	get_frame_damage(w->vnc, &damage);
+	if (!pixman_region_not_empty(&damage)) {
+		return;
+	}
+
+	int width = vnc_client_get_width(client);
+	int height = vnc_client_get_height(client);
+	int stride = vnc_client_get_stride(client);
+
+	if (!w->frame_pool) {
+		// TODO: Delete this pool somewhere
+		enum buffer_type type = have_egl ? BUFFER_DMABUF : BUFFER_WL_SHM;
+		uint32_t format = have_egl ? dmabuf_format : shm_format;
+		int scale = 1;
+		w->frame_pool = buffer_pool_create(type, width, height, format,
+				stride, scale);
+	}
+
+	struct buffer* frame = buffer_pool_acquire(w->frame_pool);
+	assert(frame);
+
+	buffer_pool_damage_all(w->frame_pool, &damage);
+	pixman_region_union(&w->current_damage, &w->current_damage, &damage);
+
+	if (!w->is_not_first_frame) {
+		w->is_not_first_frame = true;
+		render_from_vnc();
+	}
+
+	if (w->vnc->n_av_frames != 0) {
+		assert(have_egl);
+
+		render_av_frames_egl(frame, w->vnc->av_frames,
+				w->vnc->n_av_frames, 1.0, 0, 0);
+	} else {
+		struct image image = {
+			.pixels = w->vnc_fb,
+			.width = width,
+			.height = height,
+			.stride = stride,
+			// TODO: Get the format from the vnc module
+			.format = frame->format,
+			.damage = &frame->damage,
+		};
+
+		if (have_egl)
+			render_image_egl(frame, &image, 1.0, 0, 0);
+		else
+			render_image(frame, &image, 1.0, 0, 0);
+	}
+
+	uint32_t pts;
+	if (ntp_client_translate_server_time(&ntp, &pts, client->pts)) {
+		frame->pts = pts;
+	} else {
+		frame->pts = gettime_us();
+	}
+
+	buffer_ref(frame);
+	buffer_hold(frame);
+	TAILQ_INSERT_TAIL(&window->frame_queue, frame, queue_link);
+
+	register_frame_callback();
+
+	pixman_region_fini(&damage);
+	vnc_client_clear_av_frames(window->vnc);
+}
+
 static void handle_frame_callback_immediate(void* data,
 		struct wl_callback* callback, uint32_t time)
 {
@@ -690,10 +773,117 @@ static const struct wl_callback_listener frame_listener_immediate = {
 	.done = handle_frame_callback_immediate
 };
 
+static int32_t abs32(int32_t v)
+{
+	return v >= 0 ? v : -v;
+}
+
+static struct buffer* choose_frame(struct window* w)
+{
+	// TODO: Base this on jitter:
+	int32_t delay = 100000; // µs
+
+	int32_t now_us = gettime_us();
+
+	int32_t smallest_diff = INT32_MAX;
+	struct buffer* chosen_frame = NULL;
+	struct buffer* frame;
+	TAILQ_FOREACH(frame, &w->frame_queue, queue_link) {
+		int32_t diff = abs32(now_us - (frame->pts + delay));
+		if (diff >= smallest_diff) {
+			continue;
+		}
+
+		smallest_diff = diff;
+		chosen_frame = frame;
+	}
+
+	return chosen_frame;
+}
+
+// TODO: Discard all queued frames on exit
+static void discard_older_frames(struct window* w, int32_t pts)
+{
+	while (!TAILQ_EMPTY(&w->frame_queue)) {
+		struct buffer* frame = TAILQ_FIRST(&w->frame_queue);
+		int32_t diff = frame->pts - pts;
+		if (diff >= 0) {
+			return;
+		}
+
+		TAILQ_REMOVE(&w->frame_queue, frame, queue_link);
+		buffer_release(frame);
+		buffer_unref(frame);
+	}
+}
+
+static void handle_frame_callback_queued(void* data,
+		struct wl_callback* callback, uint32_t time)
+{
+	wl_callback_destroy(callback);
+	window->is_frame_callback_registered = false;
+
+	struct buffer* frame = choose_frame(window);
+	if (!frame)
+		return;
+
+	discard_older_frames(window, frame->pts);
+
+	if (!TAILQ_EMPTY(&window->frame_queue)) {
+		register_frame_callback();
+	}
+
+	// TODO: If chosen frame has already been rendered, do nothing
+
+	window_attach(window, 0, 0);
+
+	// TODO: Consolidate all this scaling and translating
+	double scale;
+	int x_pos, y_pos;
+	window_calculate_transform(window, &scale, &x_pos, &y_pos);
+
+	struct pixman_region16 damage_scaled = { 0 }, buffer_damage = { 0 },
+			       surface_damage = { 0 };
+	region_scale(&damage_scaled, &window->current_damage, scale);
+	region_translate(&buffer_damage, &damage_scaled, x_pos, y_pos);
+	pixman_region_clear(&damage_scaled);
+
+	double output_scale = output_list_get_max_scale(&outputs);
+	struct point scoord = buffer_coord_to_surface_coord(x_pos, y_pos);
+	region_scale(&damage_scaled, &window->current_damage,
+			scale / output_scale);
+	region_translate(&surface_damage, &damage_scaled, scoord.x, scoord.y);
+	pixman_region_fini(&damage_scaled);
+
+	apply_buffer_damage(&buffer_damage);
+	window_damage_region(window, &surface_damage);
+
+	pixman_region_fini(&surface_damage);
+	pixman_region_fini(&buffer_damage);
+
+	// TODO: Implement software rendering
+	render_buffer_egl(window->back_buffer, frame, scale, x_pos, y_pos);
+
+	window_commit(window);
+	window_swap(window);
+
+	pixman_region_clear(&window->current_damage);
+}
+
+static const struct wl_callback_listener frame_listener_queued = {
+	.done = handle_frame_callback_queued
+};
+
+// TODO: Maybe try avoid leaking the callback on exit
 static void register_frame_callback(void)
 {
+	if (window->is_frame_callback_registered)
+		return;
+	window->is_frame_callback_registered = true;
+
 	struct wl_callback* callback = wl_surface_frame(window->wl_surface);
-	wl_callback_add_listener(callback, &frame_listener_immediate, NULL);
+	//wl_callback_add_listener(callback, &frame_listener_immediate, NULL);
+	wl_callback_add_listener(callback, &frame_listener_queued, NULL);
 }
 
 void on_vnc_client_event(void* obj)
@@ -1012,7 +1202,8 @@ int main(int argc, char* argv[])
 	vnc->userdata = window;
 
 	vnc->alloc_fb = on_vnc_client_alloc_fb;
-	vnc->update_fb = on_vnc_client_update_fb_immediate;
+	//vnc->update_fb = on_vnc_client_update_fb_immediate;
+	vnc->update_fb = on_vnc_client_update_fb_queued;
 	vnc->ntp_event = on_ntp_event;
 
 	if (vnc_client_set_pixel_format(vnc, shm_format) < 0) {
@@ -1061,7 +1252,7 @@ int main(int argc, char* argv[])
 	wl_display_dispatch(wl_display);
 
 	create_canary_ticker();
-	create_latency_report_ticker();
+	//create_latency_report_ticker();
 
 	while (do_run)
 		run_main_loop_once();
