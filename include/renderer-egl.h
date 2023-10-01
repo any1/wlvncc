@@ -11,4 +11,6 @@ void render_image_egl(struct buffer* dst, const struct image* src, double scale,
 		int pos_x, int pos_y);
 void render_av_frames_egl(struct buffer* dst, struct vnc_av_frame** src,
 		int n_av_frames, double scale, int x_pos, int y_pos);
+void render_buffer_egl(struct buffer* dst, const struct buffer* src,
+		double scale, int x_pos, int y_pos);
 

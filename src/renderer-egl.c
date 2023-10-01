@@ -374,6 +374,47 @@ static GLuint texture_from_av_frame(const struct AVFrame* frame)
 	return tex;
 }
 
+static GLuint texture_from_buffer(const struct buffer* buffer)
+{
+	int index = 0;
+	EGLint attr[128];
+
+	append_attr(attr, &index, EGL_WIDTH, buffer->width);
+	append_attr(attr, &index, EGL_HEIGHT, buffer->height);
+	append_attr(attr, &index, EGL_LINUX_DRM_FOURCC_EXT, buffer->format);
+	append_attr(attr, &index, EGL_IMAGE_PRESERVED_KHR, EGL_TRUE);
+
+	struct gbm_bo* bo = buffer->bo;
+	int fd = gbm_bo_get_fd(bo);
+
+	append_attr(attr, &index, plane_fd_key(0), fd);
+	append_attr(attr, &index, plane_offset_key(0), gbm_bo_get_offset(bo, 0));
+	append_attr(attr, &index, plane_pitch_key(0), gbm_bo_get_stride(bo));
+
+	uint64_t mod = gbm_bo_get_modifier(buffer->bo);
+	append_attr(attr, &index, plane_modifier_lo_key(0), mod & UINT32_MAX);
+	append_attr(attr, &index, plane_modifier_hi_key(0), mod >> 32);
+
+	attr[index++] = EGL_NONE;
+
+	EGLImageKHR image = eglCreateImageKHR(egl_display, EGL_NO_CONTEXT,
+				EGL_LINUX_DMA_BUF_EXT, NULL, attr);
+	assert(image != EGL_NO_IMAGE_KHR);
+
+	GLuint tex = 0;
+	glGenTextures(1, &tex);
+
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, tex);
+
+	glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, image);
+
+	eglDestroyImageKHR(egl_display, image);
+
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
+	close(fd);
+	return tex;
+}
+
 void gl_draw(void)
 {
 	static const GLfloat s_vertices[4][2] = {
@@ -531,6 +572,45 @@ void render_av_frames_egl(struct buffer* dst, struct vnc_av_frame** src,
 
 		glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
 	}
+
+	glDisable(GL_SCISSOR_TEST);
+
+	glFlush();
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glDeleteFramebuffers(1, &fbo.fbo);
+	glDeleteRenderbuffers(1, &fbo.rbo);
+
+	pixman_region_clear(&dst->damage);
+}
+
+void render_buffer_egl(struct buffer* dst, const struct buffer* src,
+		double scale, int x_pos, int y_pos)
+{
+	struct fbo_info fbo;
+	fbo_from_gbm_bo(&fbo, dst->bo);
+
+	// Make sure we've completed drawing into the source buffer:
+	glFinish();
+
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo.fbo);
+
+	struct pixman_box16* ext = pixman_region_extents(&dst->damage);
+	glScissor(ext->x1, ext->y1, ext->x2 - ext->x1, ext->y2 - ext->y1);
+	glEnable(GL_SCISSOR_TEST);
+
+	glUseProgram(shader_program_ext);
+
+	int width = round((double)src->width * scale);
+	int height = round((double)src->height * scale);
+	glViewport(x_pos, y_pos, width, height);
+
+	GLuint tex = texture_from_buffer(src);
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, tex);
+
+	gl_draw();
+
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
 
 	glDisable(GL_SCISSOR_TEST);
 
