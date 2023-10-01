@@ -784,8 +784,13 @@ static int32_t abs32(int32_t v)
 
 static struct buffer* choose_frame(struct window* w)
 {
-	// TODO: Base this on jitter:
-	int32_t delay = 100000; // µs
+	int32_t delay = 0;
+
+	struct ntp_sample best_sample;
+	if (ntp_client_get_best_sample(&ntp, &best_sample)) {
+		// Half rtt + jitter
+		delay = ntp_client_get_jitter(&ntp) + best_sample.theta / 2;
+	}
 
 	int32_t now_us = gettime_us();
 
