@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 Andri Yngvason
+ * Copyright (c) 2020 - 2024 Andri Yngvason
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,8 +21,15 @@
 #include <sys/mman.h>
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
+#include <linux/input-event-codes.h>
 
 #include "keyboard.h"
+
+enum keyboard_led_state {
+	KEYBOARD_LED_SCROLL_LOCK = 1 << 0,
+	KEYBOARD_LED_NUM_LOCK = 1 << 1,
+	KEYBOARD_LED_CAPS_LOCK = 1 << 2,
+};
 
 struct keyboard* keyboard_new(struct wl_keyboard* wl_keyboard)
 {
@@ -119,13 +126,15 @@ static void keyboard_enter(void* data, struct wl_keyboard* wl_keyboard,
 		uint32_t serial, struct wl_surface* surface,
 		struct wl_array* keys)
 {
-	// TODO
+	struct keyboard_collection* collection = data;
+	struct keyboard* keyboard =
+		keyboard_collection_find_wl_keyboard(collection, wl_keyboard);
+	keyboard->waiting_for_modifiers = true;
 }
 
 static void keyboard_leave(void* data, struct wl_keyboard* wl_keyboard,
 		uint32_t serial, struct wl_surface* surface)
 {
-	// TODO
 }
 
 static enum xkb_key_direction xbk_key_direction_from_wl_keyboard_key_state(
@@ -159,6 +168,36 @@ static void keyboard_key(void* data, struct wl_keyboard* wl_keyboard,
 			state == WL_KEYBOARD_KEY_STATE_PRESSED);
 }
 
+static void keyboard_toggle_key(struct keyboard* self, uint32_t code)
+{
+	struct keyboard_collection* collection = self->collection;
+	collection->on_event(collection, self, code, 1);
+	collection->on_event(collection, self, code, 0);
+}
+
+static void keyboard_sync_led_state(struct keyboard* self)
+{
+	uint32_t leds = 0;
+	if (xkb_state_led_name_is_active(self->state, XKB_LED_NAME_SCROLL))
+		leds |= KEYBOARD_LED_SCROLL_LOCK;
+	if (xkb_state_led_name_is_active(self->state, XKB_LED_NAME_NUM))
+		leds |= KEYBOARD_LED_NUM_LOCK;
+	if (xkb_state_led_name_is_active(self->state, XKB_LED_NAME_CAPS))
+		leds |= KEYBOARD_LED_CAPS_LOCK;
+
+	uint32_t diff = self->led_state ^ leds;
+	self->led_state = leds;
+	if (!self->waiting_for_modifiers || !diff)
+		return;
+
+	if (diff & KEYBOARD_LED_SCROLL_LOCK)
+		keyboard_toggle_key(self, KEY_SCROLLLOCK + 8);
+	if (diff & KEYBOARD_LED_NUM_LOCK)
+		keyboard_toggle_key(self, KEY_NUMLOCK + 8);
+	if (diff & KEYBOARD_LED_CAPS_LOCK)
+		keyboard_toggle_key(self, KEY_CAPSLOCK + 8);
+}
+
 static void keyboard_modifiers(void* data, struct wl_keyboard* wl_keyboard,
 		uint32_t serial, uint32_t depressed, uint32_t latched,
 		uint32_t locked, uint32_t group)
@@ -170,6 +209,9 @@ static void keyboard_modifiers(void* data, struct wl_keyboard* wl_keyboard,
 
 	xkb_state_update_mask(keyboard->state, depressed, latched, locked, 0, 0,
 			group);
+
+	keyboard_sync_led_state(keyboard);
+	keyboard->waiting_for_modifiers = false;
 }
 
 static void keyboard_repeat_info(void* data, struct wl_keyboard* wl_keyboard,
@@ -194,6 +236,7 @@ int keyboard_collection_add_wl_keyboard(struct keyboard_collection* self,
 	if (!keyboard)
 		return -1;
 
+	keyboard->collection = self;
 	wl_list_insert(&self->keyboards, &keyboard->link);
 	wl_keyboard_add_listener(keyboard->wl_keyboard, &keyboard_listener, self);
 	return 0;

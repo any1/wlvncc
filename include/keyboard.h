@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 Andri Yngvason
+ * Copyright (c) 2020 - 2024 Andri Yngvason
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,11 +17,14 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <wayland-client.h>
 
 struct xkb_context;
 struct xkb_keymap;
 struct xkb_state;
+
+struct keyboard_collection;
 
 struct keyboard {
 	struct wl_keyboard* wl_keyboard;
@@ -30,6 +33,11 @@ struct keyboard {
 	struct xkb_context* context;
 	struct xkb_keymap* keymap;
 	struct xkb_state* state;
+
+	struct keyboard_collection* collection;
+	uint32_t led_state;
+
+	bool waiting_for_modifiers;
 };
 
 struct keyboard_collection {
