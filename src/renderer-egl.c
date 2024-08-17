@@ -343,6 +343,25 @@ static void dmabuf_attr_append_planes(EGLint* dst, int* index,
 	}
 }
 
+static EGLint get_color_space_hint(const struct AVFrame* frame)
+{
+	switch (frame->colorspace) {
+	case AVCOL_SPC_RGB: // Conversion coeffients are based on REC.601.
+	case AVCOL_SPC_SMPTE170M:
+		return EGL_ITU_REC601_EXT;
+	case AVCOL_SPC_BT709:
+		return EGL_ITU_REC709_EXT;
+	default:;
+	}
+	return 0;
+}
+
+static EGLint get_sample_range_hint(const struct AVFrame* frame)
+{
+	return frame->color_range == AVCOL_RANGE_JPEG
+		? EGL_YUV_FULL_RANGE_EXT : EGL_YUV_NARROW_RANGE_EXT;
+}
+
 static GLuint texture_from_av_frame(const struct AVFrame* frame)
 {
 	int index = 0;
@@ -354,6 +373,13 @@ static GLuint texture_from_av_frame(const struct AVFrame* frame)
 	append_attr(attr, &index, EGL_HEIGHT, frame->height);
 	append_attr(attr, &index, EGL_LINUX_DRM_FOURCC_EXT, DRM_FORMAT_NV12);
 	append_attr(attr, &index, EGL_IMAGE_PRESERVED_KHR, EGL_TRUE);
+	EGLint colorspace_hint = get_color_space_hint(frame);
+	if (colorspace_hint)
+		append_attr(attr, &index, EGL_YUV_COLOR_SPACE_HINT_EXT,
+				colorspace_hint);
+	if (frame->color_range != AVCOL_RANGE_UNSPECIFIED)
+		append_attr(attr, &index, EGL_SAMPLE_RANGE_HINT_EXT,
+				get_sample_range_hint(frame));
 	dmabuf_attr_append_planes(attr, &index, desc);
 	attr[index++] = EGL_NONE;
 
