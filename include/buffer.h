@@ -34,7 +34,7 @@ struct buffer {
 	enum buffer_type type;
 
 	int width, height;
-	int32_t scale;
+	int32_t scale_120;
 	size_t size;
 	uint32_t format;
 	struct wl_buffer* wl_buffer;
