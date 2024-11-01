@@ -45,6 +45,8 @@
 #include "renderer.h"
 #include "renderer-egl.h"
 #include "linux-dmabuf-unstable-v1.h"
+#include "fractional-scale-v1.h"
+#include "viewporter.h"
 #include "time-util.h"
 #include "output.h"
 
@@ -59,6 +61,8 @@ struct window {
 	struct wl_surface* wl_surface;
 	struct xdg_surface* xdg_surface;
 	struct xdg_toplevel* xdg_toplevel;
+	struct wp_viewport* wp_viewport;
+	struct wp_fractional_scale_v1* wp_fractional_scale;
 
 	struct buffer* buffers[3];
 	struct buffer* back_buffer;
@@ -70,6 +74,8 @@ struct window {
 	void* vnc_fb;
 
 	bool is_frame_committed;
+
+	uint32_t fractional_scale;
 };
 
 static void register_frame_callback(void);
@@ -79,6 +85,8 @@ static struct wl_registry* wl_registry;
 struct wl_compositor* wl_compositor = NULL;
 struct wl_shm* wl_shm = NULL;
 struct zwp_linux_dmabuf_v1* zwp_linux_dmabuf_v1 = NULL;
+static struct wp_viewporter *wp_viewporter = NULL;
+static struct wp_fractional_scale_manager_v1 *wp_fractional_scale_manager = NULL;
 struct gbm_device* gbm_device = NULL;
 static struct xdg_wm_base* xdg_wm_base;
 static struct wl_list seats;
@@ -155,6 +163,10 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 		}
 
 		wl_list_insert(&outputs, &output->link);
+	} else if (strcmp(interface, wp_viewporter_interface.name) == 0) {
+		wp_viewporter = wl_registry_bind(registry, id, &wp_viewporter_interface, 1);
+	} else if (strcmp(interface, wp_fractional_scale_manager_v1_interface.name) == 0) {
+		wp_fractional_scale_manager = wl_registry_bind(registry, id, &wp_fractional_scale_manager_v1_interface, 1);
 	}
 }
 
@@ -276,29 +288,27 @@ static void window_attach(struct window* w, int x, int y)
 {
 	w->back_buffer->is_attached = true;
 	wl_surface_attach(w->wl_surface, w->back_buffer->wl_buffer, x, y);
-	wl_surface_set_buffer_scale(window->wl_surface,
-			window->back_buffer->scale);
+	wp_viewport_set_destination(window->wp_viewport,
+			window->back_buffer->width * 120 / window->back_buffer->scale_120,
+		window->back_buffer->height * 120 / window->back_buffer->scale_120);
+}
+
+static int32_t get_scale_120(struct window *window, struct wl_list *outputs) {
+	int32_t scale_120 = window->fractional_scale;
+	if (scale_120 == 0) {
+		scale_120 = output_list_get_max_scale(outputs) * 120;
+	}
+
+	return scale_120;
 }
 
 static struct point surface_coord_to_buffer_coord(double x, double y)
 {
-	double scale = output_list_get_max_scale(&outputs);
+	int32_t scale_120 = get_scale_120(window, &outputs);
 
 	struct point result = {
-		.x = round(x * scale),
-		.y = round(y * scale),
-	};
-
-	return result;
-}
-
-static struct point buffer_coord_to_surface_coord(double x, double y)
-{
-	double scale = output_list_get_max_scale(&outputs);
-
-	struct point result = {
-		.x = x / scale,
-		.y = y / scale,
+		.x = round(x * scale_120 / 120),
+		.y = round(y * scale_120 / 120),
 	};
 
 	return result;
@@ -371,7 +381,7 @@ static void window_swap(struct window* w)
 
 static void window_damage(struct window* w, int x, int y, int width, int height)
 {
-	wl_surface_damage(w->wl_surface, x, y, width, height);
+	wl_surface_damage_buffer(w->wl_surface, x, y, width, height);
 }
 
 static void window_configure(struct window* w)
@@ -391,14 +401,14 @@ static const struct xdg_surface_listener xdg_surface_listener = {
 	.configure = xdg_surface_configure,
 };
 
-static void window_resize(struct window* w, int width, int height, int scale)
+static void window_resize(struct window* w, int width, int height, int scale_120)
 {
-	if (width == 0 || height == 0 || scale == 0)
+	if (width == 0 || height == 0 || scale_120 == 0)
 		return;
 
 	if (w->back_buffer && w->back_buffer->width == width &&
 			w->back_buffer->height == height &&
-			w->back_buffer->scale == scale)
+			w->back_buffer->scale_120 == scale_120)
 		return;
 
 	for (int i = 0; i < 3; ++i)
@@ -406,11 +416,11 @@ static void window_resize(struct window* w, int width, int height, int scale)
 
 	for (int i = 0; i < 3; ++i) {
 		w->buffers[i] = have_egl
-			? buffer_create_dmabuf(scale * width, scale * height,
+			? buffer_create_dmabuf(width * scale_120 / 120,  height * scale_120 / 120,
 					dmabuf_format)
-			: buffer_create_shm(scale * width, scale * height,
-					scale * 4 * width, shm_format);
-		w->buffers[i]->scale = scale;
+			: buffer_create_shm(width * scale_120 / 120, height * scale_120 / 120,
+					4 * width * scale_120 / 120, shm_format);
+		w->buffers[i]->scale_120 = scale_120;
 	}
 
 	w->back_buffer = w->buffers[0];
@@ -419,8 +429,9 @@ static void window_resize(struct window* w, int width, int height, int scale)
 static void xdg_toplevel_configure(void* data, struct xdg_toplevel* toplevel,
 		int32_t width, int32_t height, struct wl_array* state)
 {
-	int32_t scale = output_list_get_max_scale(&outputs);
-	window_resize(data, width, height, scale);
+	struct window *w = data;
+	int32_t scale_120 = get_scale_120(w, &outputs);
+	window_resize(data, width, height, scale_120);
 }
 
 static void xdg_toplevel_close(void* data, struct xdg_toplevel* toplevel)
@@ -431,6 +442,17 @@ static void xdg_toplevel_close(void* data, struct xdg_toplevel* toplevel)
 static const struct xdg_toplevel_listener xdg_toplevel_listener = {
 	.configure = xdg_toplevel_configure,
 	.close = xdg_toplevel_close,
+};
+
+static void wp_fractional_scale_preferred(void *data,
+		struct wp_fractional_scale_v1* wp_fractional_scale, uint32_t scale)
+{
+	struct window *w = data;
+	w->fractional_scale = scale;
+}
+
+static const struct wp_fractional_scale_v1_listener wp_fractional_scale_listener = {
+	.preferred_scale = wp_fractional_scale_preferred,
 };
 
 static struct window* window_create(const char* app_id, const char* title)
@@ -444,6 +466,20 @@ static struct window* window_create(const char* app_id, const char* title)
 	w->wl_surface = wl_compositor_create_surface(wl_compositor);
 	if (!w->wl_surface)
 		goto wl_surface_failure;
+
+	if (wp_fractional_scale_manager) {
+		w->wp_fractional_scale = wp_fractional_scale_manager_v1_get_fractional_scale(wp_fractional_scale_manager, w->wl_surface);
+		if (!w->wp_fractional_scale)
+			goto wp_fractional_scale_failure;
+
+		wp_fractional_scale_v1_add_listener(w->wp_fractional_scale, &wp_fractional_scale_listener, w);
+	} else {
+		w->wp_fractional_scale = NULL;
+	}
+
+	w->wp_viewport = wp_viewporter_get_viewport(wp_viewporter, w->wl_surface);
+	if (!w->wp_viewport)
+		goto wp_viewport_failure;
 
 	w->xdg_surface = xdg_wm_base_get_xdg_surface(xdg_wm_base, w->wl_surface);
 	if (!w->xdg_surface)
@@ -463,10 +499,16 @@ static struct window* window_create(const char* app_id, const char* title)
 
 	return w;
 
+
 xdg_toplevel_failure:
 	xdg_surface_destroy(w->xdg_surface);
 xdg_surface_failure:
 	wl_surface_destroy(w->wl_surface);
+wp_viewport_failure:
+	wp_viewport_destroy(w->wp_viewport);
+wp_fractional_scale_failure:
+	if (wp_fractional_scale_manager)
+		wp_fractional_scale_v1_destroy(w->wp_fractional_scale);
 wl_surface_failure:
 	free(w);
 	return NULL;
@@ -480,6 +522,9 @@ static void window_destroy(struct window* w)
 	free(w->vnc_fb);
 	xdg_toplevel_destroy(w->xdg_toplevel);
 	xdg_surface_destroy(w->xdg_surface);
+	if (wp_fractional_scale_manager)
+		wp_fractional_scale_v1_destroy(w->wp_fractional_scale);
+	wp_viewport_destroy(w->wp_viewport);
 	wl_surface_destroy(w->wl_surface);
 	pixman_region_fini(&w->current_damage);
 	free(w);
@@ -560,8 +605,8 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 		window = window_create(app_id, vnc_client_get_desktop_name(client));
 		window->vnc = client;
 
-		int32_t scale = output_list_get_max_scale(&outputs);
-		window_resize(window, width, height, scale);
+		int32_t scale_120 = get_scale_120(window, &outputs);
+		window_resize(window, width, height, scale_120);
 	}
 
 	free(window->vnc_fb);
@@ -626,23 +671,17 @@ static void render_from_vnc(void)
 	int x_pos, y_pos;
 	window_calculate_transform(window, &scale, &x_pos, &y_pos);
 
-	struct pixman_region16 damage_scaled = { 0 }, buffer_damage = { 0 },
-			       surface_damage = { 0 };
+	struct pixman_region16 damage_scaled = { 0 }, buffer_damage = { 0 };
 	region_scale(&damage_scaled, &window->current_damage, scale);
 	region_translate(&buffer_damage, &damage_scaled, x_pos, y_pos);
 	pixman_region_clear(&damage_scaled);
 
-	double output_scale = output_list_get_max_scale(&outputs);
-	struct point scoord = buffer_coord_to_surface_coord(x_pos, y_pos);
-	region_scale(&damage_scaled, &window->current_damage,
-			scale / output_scale);
-	region_translate(&surface_damage, &damage_scaled, scoord.x, scoord.y);
+	region_scale(&damage_scaled, &window->current_damage, scale);
 	pixman_region_fini(&damage_scaled);
 
 	apply_buffer_damage(&buffer_damage);
-	window_damage_region(window, &surface_damage);
+	window_damage_region(window, &buffer_damage);
 
-	pixman_region_fini(&surface_damage);
 	pixman_region_fini(&buffer_damage);
 
 	window_transfer_pixels(window);
@@ -1021,6 +1060,8 @@ int main(int argc, char* argv[])
 	rc = 0;
 	if (window)
 		window_destroy(window);
+	wp_fractional_scale_manager_v1_destroy(wp_fractional_scale_manager);
+	wp_viewporter_destroy(wp_viewporter);
 vnc_setup_failure:
 	vnc_client_destroy(vnc);
 vnc_failure:
