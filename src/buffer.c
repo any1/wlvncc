@@ -17,7 +17,7 @@
 #include "buffer.h"
 #include "shm.h"
 #include "pixels.h"
-#include "linux-dmabuf-unstable-v1.h"
+#include "linux-dmabuf-v1.h"
 
 #include <stdlib.h>
 #include <sys/mman.h>
