@@ -15,6 +15,7 @@
  */
 
 #include <stdlib.h>
+#include <sys/mman.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdbool.h>
@@ -44,7 +45,7 @@
 #include "buffer.h"
 #include "renderer.h"
 #include "renderer-egl.h"
-#include "linux-dmabuf-unstable-v1.h"
+#include "linux-dmabuf-v1.h"
 #include "time-util.h"
 #include "output.h"
 
@@ -72,6 +73,12 @@ struct window {
 	bool is_frame_committed;
 };
 
+struct format_table_entry {
+	uint32_t format;
+	uint32_t padding;
+	uint64_t modifier;
+} __attribute__((packed));
+
 static void register_frame_callback(void);
 
 static struct wl_display* wl_display;
@@ -79,6 +86,8 @@ static struct wl_registry* wl_registry;
 struct wl_compositor* wl_compositor = NULL;
 struct wl_shm* wl_shm = NULL;
 struct zwp_linux_dmabuf_v1* zwp_linux_dmabuf_v1 = NULL;
+struct format_table_entry* format_table = NULL;
+uint32_t format_table_size = -1;
 struct gbm_device* gbm_device = NULL;
 static struct xdg_wm_base* xdg_wm_base;
 static struct wl_list seats;
@@ -131,7 +140,7 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 		wl_shm = wl_registry_bind(registry, id, &wl_shm_interface, 1);
 	} else if (strcmp(interface, "zwp_linux_dmabuf_v1") == 0) {
 		zwp_linux_dmabuf_v1 = wl_registry_bind(registry, id,
-				&zwp_linux_dmabuf_v1_interface, 2);
+				&zwp_linux_dmabuf_v1_interface, 4);
 	} else if (strcmp(interface, "wl_seat") == 0) {
 		struct wl_seat* wl_seat;
 		wl_seat = wl_registry_bind(registry, id, &wl_seat_interface, 5);
@@ -204,24 +213,72 @@ static const struct xdg_wm_base_listener xdg_wm_base_listener = {
 	.ping = xdg_wm_base_ping,
 };
 
-static void handle_dmabuf_format(void *data,
-		struct zwp_linux_dmabuf_v1 *zwp_linux_dmabuf, uint32_t format)
+static void handle_dmabuf_formats_done(void* data,
+		struct zwp_linux_dmabuf_feedback_v1* zwp_linux_dmabuf_feedback_v1)
 {
 	(void)data;
-	(void)zwp_linux_dmabuf;
+	(void)zwp_linux_dmabuf_feedback_v1;
+
+	if (format_table != MAP_FAILED) {
+		munmap(format_table, format_table_size);
+		format_table = NULL;
+		format_table_size = -1;
+	}
+}
+
+static void handle_format_table(void* data,
+		struct zwp_linux_dmabuf_feedback_v1* zwp_linux_dmabuf_feedback_v1, int32_t fd, uint32_t size)
+{
+	(void)data;
+	(void)zwp_linux_dmabuf_feedback_v1;
+
+	format_table = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+	if (format_table == MAP_FAILED)
+		return;
+
+	format_table_size = size;
+}
+
+static void handle_tranche_formats(void* data,
+		struct zwp_linux_dmabuf_feedback_v1* zwp_linux_dmabuf_feedback_v1, struct wl_array* indices)
+{
+	(void)data;
+	(void)zwp_linux_dmabuf_feedback_v1;
 
 	if (dmabuf_format != DRM_FORMAT_INVALID)
 		return;
 
-	switch (format) {
-	case DRM_FORMAT_XRGB8888:
-	case DRM_FORMAT_XBGR8888:
-		dmabuf_format = format;
+	if (format_table == MAP_FAILED)
+		return;
+
+	uint16_t* index;
+	uint16_t max_index = format_table_size / sizeof(struct format_table_entry);
+	wl_array_for_each(index, indices) {
+		if (*index >= max_index)
+			continue;
+
+		switch (format_table[*index].format) {
+		case DRM_FORMAT_XRGB8888:
+		case DRM_FORMAT_XBGR8888:
+			if (format_table[*index].modifier == DRM_FORMAT_MOD_INVALID)
+				dmabuf_format = format_table[*index].format;
+		}
 	}
 }
 
-static const struct zwp_linux_dmabuf_v1_listener dmabuf_listener = {
-	.format = handle_dmabuf_format,
+static void noop()
+{
+	/* noop */
+}
+
+static const struct zwp_linux_dmabuf_feedback_v1_listener dmabuf_feedback_listener = {
+	.done = handle_dmabuf_formats_done,
+	.format_table = handle_format_table,
+	.main_device = noop,
+	.tranche_done = noop,
+	.tranche_target_device = noop,
+	.tranche_formats = handle_tranche_formats,
+	.tranche_flags = noop,
 };
 
 void on_wayland_event(void* obj)
@@ -754,8 +811,9 @@ static int init_egl_renderer(void)
 		return -1;
 	}
 
-	zwp_linux_dmabuf_v1_add_listener(zwp_linux_dmabuf_v1,
-			&dmabuf_listener, NULL);
+	struct zwp_linux_dmabuf_feedback_v1* zwp_linux_dmabuf_feedback_v1 = NULL;
+	zwp_linux_dmabuf_feedback_v1 = zwp_linux_dmabuf_v1_get_default_feedback(zwp_linux_dmabuf_v1);
+	zwp_linux_dmabuf_feedback_v1_add_listener(zwp_linux_dmabuf_feedback_v1, &dmabuf_feedback_listener, NULL);
 	wl_display_roundtrip(wl_display);
 
 	if (dmabuf_format == DRM_FORMAT_INVALID) {
