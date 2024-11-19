@@ -94,6 +94,7 @@ static struct wl_list seats;
 static struct wl_list outputs;
 struct pointer_collection* pointers;
 struct keyboard_collection* keyboards;
+static dev_t dma_dev;
 static int drm_fd = -1;
 static uint64_t last_canary_tick;
 
@@ -227,7 +228,8 @@ static void handle_dmabuf_formats_done(void* data,
 }
 
 static void handle_format_table(void* data,
-		struct zwp_linux_dmabuf_feedback_v1* zwp_linux_dmabuf_feedback_v1, int32_t fd, uint32_t size)
+		struct zwp_linux_dmabuf_feedback_v1* zwp_linux_dmabuf_feedback_v1,
+		int32_t fd, uint32_t size)
 {
 	(void)data;
 	(void)zwp_linux_dmabuf_feedback_v1;
@@ -237,6 +239,16 @@ static void handle_format_table(void* data,
 		return;
 
 	format_table_size = size;
+}
+
+static void handle_main_device(void* data,
+		struct zwp_linux_dmabuf_feedback_v1* zwp_linux_dmabuf_feedback_v1,
+		struct wl_array* device)
+{
+	if (device->size != sizeof(dev_t))
+		return;
+
+	memcpy(&dma_dev, device->data, device->size);
 }
 
 static void handle_tranche_formats(void* data,
@@ -274,7 +286,7 @@ static void noop()
 static const struct zwp_linux_dmabuf_feedback_v1_listener dmabuf_feedback_listener = {
 	.done = handle_dmabuf_formats_done,
 	.format_table = handle_format_table,
-	.main_device = noop,
+	.main_device = handle_main_device,
 	.tranche_done = noop,
 	.tranche_target_device = noop,
 	.tranche_formats = handle_tranche_formats,
@@ -781,12 +793,32 @@ static int find_render_node(char *node, size_t maxlen) {
 	return r;
 }
 
+static int render_node_from_dev_t(char* node, size_t maxlen, dev_t device)
+{
+	drmDevice *dev_ptr;
+
+	if (drmGetDeviceFromDevId(device, 0, &dev_ptr) < 0)
+		return -1;
+
+	if (dev_ptr->available_nodes & (1 << DRM_NODE_RENDER))
+		strlcpy(node, dev_ptr->nodes[DRM_NODE_RENDER], maxlen);
+
+	drmFreeDevice(&dev_ptr);
+
+	return 0;
+}
+
 static int init_gbm_device(void)
 {
 	int rc;
 
 	char render_node[256];
-	rc = find_render_node(render_node, sizeof(render_node));
+	if (dma_dev) {
+		rc = render_node_from_dev_t(render_node, sizeof(render_node),
+				dma_dev);
+	} else {
+		rc = find_render_node(render_node, sizeof(render_node));
+	}
 	if (rc < 0)
 		return -1;
 
