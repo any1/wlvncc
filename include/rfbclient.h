@@ -330,8 +330,6 @@ typedef struct _rfbClient {
 	int KeyboardLedStateEnabled;
 	int CurrentKeyboardLedState;
 
-	int canHandleNewFBSize;
-
 	/* hooks */
 	HandleTextChatProc         HandleTextChat;
 	HandleKeyboardLedStateProc HandleKeyboardLedState;
