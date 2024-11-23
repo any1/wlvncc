@@ -1391,7 +1391,7 @@ rfbBool SetFormatAndEncodings(rfbClient* client)
 		        rfbClientSwap32IfLE(rfbEncodingKeyboardLedState);
 
 	/* New Frame Buffer Size */
-	if (se->nEncodings < MAX_ENCODINGS && client->canHandleNewFBSize)
+	if (se->nEncodings < MAX_ENCODINGS)
 		encs[se->nEncodings++] =
 		        rfbClientSwap32IfLE(rfbEncodingNewFBSize);
 
