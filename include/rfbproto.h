@@ -475,7 +475,7 @@ typedef struct {
 #define rfbEncodingPointerPos      0xFFFFFF18
 
 #define rfbEncodingLastRect           0xFFFFFF20
-#define rfbEncodingNewFBSize          0xFFFFFF21
+#define rfbEncodingDesktopSize        0xFFFFFF21
 #define rfbEncodingExtDesktopSize     0xFFFFFECC
 
 #define rfbEncodingQualityLevel0   0xFFFFFFE0

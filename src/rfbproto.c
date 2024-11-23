@@ -1390,10 +1390,10 @@ rfbBool SetFormatAndEncodings(rfbClient* client)
 		encs[se->nEncodings++] =
 		        rfbClientSwap32IfLE(rfbEncodingKeyboardLedState);
 
-	/* New Frame Buffer Size */
+	/* New Desktop Size */
 	if (se->nEncodings < MAX_ENCODINGS)
 		encs[se->nEncodings++] =
-		        rfbClientSwap32IfLE(rfbEncodingNewFBSize);
+		        rfbClientSwap32IfLE(rfbEncodingDesktopSize);
 
 	/* Last Rect */
 	if (se->nEncodings < MAX_ENCODINGS && requestLastRectEncoding)
@@ -1826,7 +1826,7 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			continue;
 		}
 
-		if (rect.encoding == rfbEncodingNewFBSize) {
+		if (rect.encoding == rfbEncodingDesktopSize) {
 			if (!ResizeClientBuffer(client, rect.r.w, rect.r.h))
 				goto failure;
 			SendFramebufferUpdateRequest(client, 0, 0, rect.r.w,
