@@ -167,7 +167,7 @@ static int compile_shaders(const char* vert_src, const char* frag_src)
 	return prog;
 }
 
-int egl_init(void)
+int egl_init(struct gbm_device* gbm)
 {
 	int rc;
 	rc = eglBindAPI(EGL_OPENGL_ES_API);
@@ -177,8 +177,7 @@ int egl_init(void)
 	if (egl_load_egl_ext() < 0)
 		return -1;
 
-	egl_display = eglGetPlatformDisplayEXT(EGL_PLATFORM_SURFACELESS_MESA,
-			EGL_DEFAULT_DISPLAY, NULL);
+	egl_display = eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_KHR, gbm, NULL);
 	if (egl_display == EGL_NO_DISPLAY)
 		return -1;
 

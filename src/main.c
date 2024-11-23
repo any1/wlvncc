@@ -858,7 +858,7 @@ static int init_egl_renderer(void)
 		goto failure;
 	}
 
-	if (egl_init() < 0) {
+	if (egl_init(gbm_device) < 0) {
 		printf("Failed initialise EGL. Using software rendering.\n");
 		goto failure;
 	}
