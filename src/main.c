@@ -109,6 +109,7 @@ struct window* window = NULL;
 const char* app_id = "wlvncc";
 
 const char* tls_cert_path = NULL;
+const char* auth_command = NULL;
 
 static void on_seat_capability_change(struct seat* seat)
 {
@@ -942,11 +943,12 @@ int main(int argc, char* argv[])
 	const char* encodings = NULL;
 	int quality = -1;
 	int compression = -1;
-	static const char* shortopts = "a:q:c:e:hnst:";
+	static const char* shortopts = "a:A:q:c:e:hnst:";
 	bool use_sw_renderer = false;
 
 	static const struct option longopts[] = {
 		{ "app-id", required_argument, NULL, 'a' },
+		{ "auth-command", required_argument, NULL, 'A' },
 		{ "compression", required_argument, NULL, 'c' },
 		{ "encodings", required_argument, NULL, 'e' },
 		{ "hide-cursor", no_argument, NULL, 'n' },
@@ -965,6 +967,9 @@ int main(int argc, char* argv[])
 		switch (c) {
 		case 'a':
 			app_id = optarg;
+			break;
+		case 'A':
+			auth_command = optarg;
 			break;
 		case 'q':
 			quality = atoi(optarg);

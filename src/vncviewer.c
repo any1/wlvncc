@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2024 Andri Yngvason.  All Rights Reserved.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -24,10 +25,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/wait.h>
 #include "rfbclient.h"
 #include "tls.h"
 
 extern const char* tls_cert_path;
+extern const char* auth_command;
 
 static void Dummy(rfbClient* client) {
 }
@@ -46,10 +49,10 @@ static char* ReadLine(const char* title)
 
 	char* line = NULL;
 	size_t size = 0;
-	size_t len = getline(&line, &size, stdin);
+	ssize_t len = getline(&line, &size, stdin);
 
 	// Trim off the newline character
-	if (len != 0)
+	if (len > 0)
 		line[len - 1] = '\0';
 
 	return line;
@@ -74,24 +77,126 @@ static char* ReadLineNoEcho(const char* title)
 	return line;
 }
 
+static int RunAuthCommand(char** username, char** password)
+{
+	int fds[2];
+	if (pipe(fds) < 0) {
+		rfbClientLog("Failed to create pipe: %m\n");
+		return -1;
+	}
+
+	int rfd = fds[0];
+	int wfd = fds[1];
+
+	FILE* out = fdopen(rfd, "r");
+	if (!out) {
+		rfbClientLog("Failed to open output stream: %m\n");
+		return -1;
+	}
+
+	pid_t pid = fork();
+	if (pid == -1) {
+		rfbClientLog("Failed to fork: %m\n");
+		return -1;
+	}
+
+	if (pid == 0) {
+		int rc = dup2(wfd, STDOUT_FILENO);
+		close(wfd);
+		if (rc < 0) {
+			fprintf(stderr, "Failed to replace stdout after fork\n");
+			exit(EXIT_FAILURE);
+		}
+
+		const char* shell = getenv("SHELL");
+		if (!shell)
+			shell = "/bin/sh";
+
+		execl(shell, shell, "-c", auth_command, (char*)NULL);
+		_exit(EXIT_FAILURE);
+	}
+
+	close(wfd);
+
+	int wstatus;
+	int rc = waitpid(pid, &wstatus, 0);
+	if (rc < 0) {
+		rfbClientLog("Failed to wait for auth script: %m\n");
+		goto out;
+	}
+
+
+	if (!WIFEXITED(wstatus)) {
+		rfbClientLog("Auth script exited with a failure: %d\n",
+				WEXITSTATUS(wstatus));
+		goto out;
+	}
+
+	char* line = NULL;
+	size_t size = 0;
+
+	ssize_t len;
+
+	if (username) {
+		len = getline(&line, &size, out);
+		if (len > 0) {
+			line[len - 1] = '\0';
+			*username = strdup(line);
+		}
+	}
+
+	len = getline(&line, &size, out);
+	if (len > 0) {
+		line[len - 1] = '\0';
+		*password = strdup(line);
+	}
+
+	if ((*username && !*username) || !*password) {
+		rfbClientLog("Did not get credentials from auth script\n");
+		return -1;
+	}
+
+out:
+	fclose(out);
+	return rc;
+}
+
 static char* ReadPassword(rfbClient* client) {
+	if (auth_command) {
+		char* password = NULL;
+		if (RunAuthCommand(NULL, &password) < 0)
+			return NULL;
+		return password;
+	}
+
 	return ReadLineNoEcho("Password");
 }
 
 static rfbCredential* ReadUsernameAndPassword(rfbClient* client)
 {
 	rfbCredential *cred = calloc(1, sizeof(*cred));
+
+	if (auth_command) {
+		if (RunAuthCommand(&cred->userCredential.username,
+					&cred->userCredential.password) < 0)
+			goto failure;
+		return cred;
+	}
+
 	cred->userCredential.username = ReadLine("User");
 	cred->userCredential.password = ReadLineNoEcho("Password");
 
 	if (!cred->userCredential.username || !cred->userCredential.password) {
-		free(cred->userCredential.username);
-		free(cred->userCredential.password);
-		free(cred);
-		return NULL;
+		goto failure;
 	}
 
 	return cred;
+
+failure:
+	free(cred->userCredential.username);
+	free(cred->userCredential.password);
+	free(cred);
+	return NULL;
 }
 
 static rfbCredential* ReadX509Creds(rfbClient* client)
