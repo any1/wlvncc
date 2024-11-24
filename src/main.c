@@ -922,6 +922,7 @@ static int usage(int r)
 Usage: wlvncc <address> [port]\n\
 \n\
     -a,--app-id=<name>       Set the app-id of the window. Default: wlvncc\n\
+    -A,--auth-command=<cmd>  Run a command for authenticating.\n\
     -c,--compression         Compression level (0 - 9).\n\
     -e,--encodings=<list>    Set allowed encodings, comma separated list.\n\
                              Supported values: tight, zrle, ultra, copyrect,\n\
@@ -929,6 +930,7 @@ Usage: wlvncc <address> [port]\n\
     -h,--help                Get help.\n\
     -n,--hide-cursor         Hide the client-side cursor.\n\
     -q,--quality             Quality level (0 - 9).\n\
+    -t,--tls-cert            Use given TLS cert for authenticating server.\n\
     -s,--use-sw-renderer     Use software rendering.\n\
 \n\
 ");
