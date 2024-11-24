@@ -22,6 +22,10 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <libavcodec/avcodec.h>
+#include <gbm.h>
+#include <xf86drm.h>
+
+extern struct gbm_device* gbm_device;
 
 enum open_h264_flags {
 	OPEN_H264_RESET_CONTEXT = 1 << 0,
@@ -47,6 +51,15 @@ struct open_h264 {
 	struct open_h264_context* contexts[OPEN_H264_MAX_CONTEXTS];
 	int n_contexts;
 };
+
+static char* get_device_name(void)
+{
+	int fd = gbm_device_get_fd(gbm_device);
+	if (fd < 0)
+		return NULL;
+
+	return drmGetDeviceNameFromFd2(fd);
+}
 
 static bool are_rects_equal(const rfbRectangle* a, const rfbRectangle* b)
 {
@@ -93,8 +106,14 @@ static struct open_h264_context* open_h264_context_create(
 	if (!context->codec_ctx)
 		goto failure;
 
-	if (av_hwdevice_ctx_create(&context->hwctx_ref, AV_HWDEVICE_TYPE_VAAPI,
-				NULL, NULL, 0) != 0)
+	char* device_name = get_device_name();
+	if (!device_name)
+		goto failure;
+
+	int rc = av_hwdevice_ctx_create(&context->hwctx_ref,
+			AV_HWDEVICE_TYPE_VAAPI, device_name, NULL, 0);
+	free(device_name);
+	if (rc != 0)
 		goto failure;
 
 	context->codec_ctx->hw_device_ctx = av_buffer_ref(context->hwctx_ref);
