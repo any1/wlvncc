@@ -476,8 +476,7 @@ static rfbBool ReadSupportedSecurityType(rfbClient* client, uint32_t* result,
 #ifdef LIBVNCSERVER_HAVE_SASL
 		    tAuth[loop] == rfbSASL ||
 #endif /* LIBVNCSERVER_HAVE_SASL */
-		    ((tAuth[loop] == rfbARD || tAuth[loop] == rfbUltraMSLogonII) &&
-		     client->GetCredential)) {
+		    tAuth[loop] == rfbARD || tAuth[loop] == rfbUltraMSLogonII) {
 			if (!subAuth && client->clientAuthSchemes) {
 				int i;
 				for (i = 0; client->clientAuthSchemes[i]; i++) {

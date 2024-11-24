@@ -37,30 +37,67 @@ static void DummyRect(rfbClient* client, int x, int y, int w, int h) {
 
 #include <termios.h>
 
-static char* ReadPassword(rfbClient* client) {
-	int i;
-	char* p=calloc(1,9);
-	if (!p) return p;
-	struct termios save,noecho;
-	if(tcgetattr(fileno(stdin),&save)!=0) return p;
-	noecho=save; noecho.c_lflag &= ~ECHO;
-	if(tcsetattr(fileno(stdin),TCSAFLUSH,&noecho)!=0) return p;
-	fprintf(stderr,"Password: ");
+static char* ReadLine(const char* title)
+{
+	fprintf(stderr, "%s: ", title);
 	fflush(stderr);
-	i=0;
-	while(1) {
-		int c=fgetc(stdin);
-		if(c=='\n')
-			break;
-		if(i<8) {
-			p[i]=c;
-			i++;
-			p[i]=0;
-		}
-	}
-	tcsetattr(fileno(stdin),TCSAFLUSH,&save);
-	return p;
+
+	char* line = NULL;
+	size_t size = 0;
+	size_t len = getline(&line, &size, stdin);
+
+	// Trim off the newline character
+	if (len != 0)
+		line[len - 1] = '\0';
+
+	return line;
 }
+
+static char* ReadLineNoEcho(const char* title)
+{
+	struct termios save, noecho;
+
+	if (tcgetattr(fileno(stdin), &save) != 0)
+		return NULL;
+
+	noecho = save;
+	noecho.c_lflag &= ~ECHO;
+
+	if (tcsetattr(fileno(stdin), TCSAFLUSH, &noecho) != 0)
+		return NULL;
+
+	char* line = ReadLine(title);
+	tcsetattr(fileno(stdin), TCSAFLUSH, &save);
+
+	return line;
+}
+
+static char* ReadPassword(rfbClient* client) {
+	return ReadLineNoEcho("Password");
+}
+
+static rfbCredential* ReadUsernameAndPassword(rfbClient* client,
+		int credentialType)
+{
+	if (credentialType != rfbCredentialTypeUser) {
+		fprintf(stderr, "Don't know how to deal with certificates and stuff yet\n");
+		return NULL;
+	}
+
+	rfbCredential *cred = calloc(1, sizeof(*cred));
+	cred->userCredential.username = ReadLine("User");
+	cred->userCredential.password = ReadLineNoEcho("Password");
+
+	if (!cred->userCredential.username || !cred->userCredential.password) {
+		free(cred->userCredential.username);
+		free(cred->userCredential.password);
+		free(cred);
+		return NULL;
+	}
+
+	return cred;
+}
+
 static rfbBool MallocFrameBuffer(rfbClient* client) {
   uint64_t allocSize;
 
@@ -314,7 +351,7 @@ rfbClient* rfbGetClient(int bitsPerSample,int samplesPerPixel,
 
   client->authScheme = 0;
   client->subAuthScheme = 0;
-  client->GetCredential = NULL;
+  client->GetCredential = ReadUsernameAndPassword;
   client->tlsSession = NULL;
   client->LockWriteToTLS = NULL;
   client->UnlockWriteToTLS = NULL;
