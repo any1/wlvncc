@@ -268,6 +268,10 @@ int vnc_client_connect(struct vnc_client* self, const char* address, int port)
 {
 	rfbClient* client = self->client;
 
+	// This is needed for TLS authentication. TODO: Clean up
+	free(client->serverHost);
+	client->serverHost = strdup(address);
+
 	return ConnectToRFBServer(client, address, port) ? 0 : -1;
 }
 

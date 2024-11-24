@@ -27,6 +27,8 @@
 #include "rfbclient.h"
 #include "tls.h"
 
+extern const char* tls_cert_path;
+
 static void Dummy(rfbClient* client) {
 }
 static rfbBool DummyPoint(rfbClient* client, int x, int y) {
@@ -76,14 +78,8 @@ static char* ReadPassword(rfbClient* client) {
 	return ReadLineNoEcho("Password");
 }
 
-static rfbCredential* ReadUsernameAndPassword(rfbClient* client,
-		int credentialType)
+static rfbCredential* ReadUsernameAndPassword(rfbClient* client)
 {
-	if (credentialType != rfbCredentialTypeUser) {
-		fprintf(stderr, "Don't know how to deal with certificates and stuff yet\n");
-		return NULL;
-	}
-
 	rfbCredential *cred = calloc(1, sizeof(*cred));
 	cred->userCredential.username = ReadLine("User");
 	cred->userCredential.password = ReadLineNoEcho("Password");
@@ -96,6 +92,30 @@ static rfbCredential* ReadUsernameAndPassword(rfbClient* client,
 	}
 
 	return cred;
+}
+
+static rfbCredential* ReadX509Creds(rfbClient* client)
+{
+	const char *ca_cert = tls_cert_path ? tls_cert_path : "/etc/ssl/cert.pem";
+
+	if (access(ca_cert, F_OK) != 0) {
+		rfbClientLog("Missing CA certificates (%s)\n", ca_cert);
+		return NULL;
+	}
+
+	rfbCredential *cred = calloc(1, sizeof(*cred));
+	cred->x509Credential.x509CACertFile = strdup(ca_cert);
+
+	return cred;
+}
+
+static rfbCredential* GetCredentials(rfbClient* client, int type)
+{
+	switch (type) {
+	case rfbCredentialTypeUser: return ReadUsernameAndPassword(client);
+	case rfbCredentialTypeX509: return ReadX509Creds(client);
+	}
+	return NULL;
 }
 
 static rfbBool MallocFrameBuffer(rfbClient* client) {
@@ -351,7 +371,7 @@ rfbClient* rfbGetClient(int bitsPerSample,int samplesPerPixel,
 
   client->authScheme = 0;
   client->subAuthScheme = 0;
-  client->GetCredential = ReadUsernameAndPassword;
+  client->GetCredential = GetCredentials;
   client->tlsSession = NULL;
   client->LockWriteToTLS = NULL;
   client->UnlockWriteToTLS = NULL;

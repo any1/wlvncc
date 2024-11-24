@@ -108,6 +108,8 @@ static bool do_run = true;
 struct window* window = NULL;
 const char* app_id = "wlvncc";
 
+const char* tls_cert_path = NULL;
+
 static void on_seat_capability_change(struct seat* seat)
 {
 	if (seat->capabilities & WL_SEAT_CAPABILITY_POINTER) {
@@ -940,16 +942,17 @@ int main(int argc, char* argv[])
 	const char* encodings = NULL;
 	int quality = -1;
 	int compression = -1;
-	static const char* shortopts = "a:q:c:e:hns";
+	static const char* shortopts = "a:q:c:e:hnst:";
 	bool use_sw_renderer = false;
 
 	static const struct option longopts[] = {
 		{ "app-id", required_argument, NULL, 'a' },
 		{ "compression", required_argument, NULL, 'c' },
 		{ "encodings", required_argument, NULL, 'e' },
+		{ "hide-cursor", no_argument, NULL, 'n' },
 		{ "help", no_argument, NULL, 'h' },
 		{ "quality", required_argument, NULL, 'q' },
-		{ "hide-cursor", no_argument, NULL, 'n' },
+		{ "tls-cert", required_argument, NULL, 't' },
 		{ "use-sw-renderer", no_argument, NULL, 's' },
 		{ NULL, 0, NULL, 0 }
 	};
@@ -977,6 +980,9 @@ int main(int argc, char* argv[])
 			break;
 		case 's':
 			use_sw_renderer = true;
+			break;
+		case 't':
+			tls_cert_path = optarg;
 			break;
 		case 'h':
 			return usage(0);
