@@ -2,7 +2,7 @@
 #
 # This is an example script that displays a pop-up dialogue for user
 # authentication.
-# It can be enabled via the --auth-script option. E.g.
+# It can be enabled via the --auth-command option. E.g.
 #     wlvncc --auth-command=$HOME/projects/wlvncc/scripts/auth-script.h my-vnc-server.local
 
 ENTRY=$(zenity --password --username)
