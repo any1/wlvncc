@@ -22,8 +22,9 @@ Expect bugs and missing features.
 git clone https://github.com/any1/aml.git
 git clone https://github.com/any1/wlvncc.git
 
-mkdir wlvncc/subprojects
-cd wlvncc/subprojects
+cd wlvncc
+mkdir subprojects
+cd subprojects
 ln -s ../../aml .
 cd -
 
