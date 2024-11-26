@@ -51,7 +51,7 @@ void render_image(struct buffer* dst, const struct image* src, double scale,
 
 	pixman_image_set_clip_region(dstimg, &dst->damage);
 
-	pixman_image_composite(PIXMAN_OP_OVER, srcimg, NULL, dstimg,
+	pixman_image_composite(PIXMAN_OP_SRC, srcimg, NULL, dstimg,
 			0, 0,
 			0, 0,
 			x_pos, y_pos,
