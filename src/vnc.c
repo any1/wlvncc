@@ -328,6 +328,13 @@ int vnc_client_set_pixel_format(struct vnc_client* self, uint32_t format)
 		dst->blueShift = 0;
 		bpp = 32;
 		break;
+	case DRM_FORMAT_ABGR8888:
+	case DRM_FORMAT_XBGR8888:
+		dst->redShift = 0;
+		dst->greenShift = 8;
+		dst->blueShift = 16;
+		bpp = 32;
+		break;
 	default:
 		return -1;
 	}

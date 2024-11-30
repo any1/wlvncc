@@ -1074,7 +1074,9 @@ int main(int argc, char* argv[])
 	vnc->alloc_fb = on_vnc_client_alloc_fb;
 	vnc->update_fb = on_vnc_client_update_fb;
 
-	if (vnc_client_set_pixel_format(vnc, shm_format) < 0) {
+	uint32_t format = have_egl ? dmabuf_format : shm_format;
+
+	if (vnc_client_set_pixel_format(vnc, format) < 0) {
 		fprintf(stderr, "Unsupported pixel format\n");
 		goto vnc_setup_failure;
 	}
