@@ -100,8 +100,8 @@ static void keyboard_keymap(void* data, struct wl_keyboard* wl_keyboard,
 		keyboard_collection_find_wl_keyboard(self, wl_keyboard);
 	assert(keyboard);
 
-	// TODO: Ignore keyboard if no proper format is available?
-	assert(format == WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1);
+	if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1)
+		return;
 
 	char* buffer = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
 	assert(buffer);
