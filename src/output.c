@@ -72,13 +72,13 @@ int32_t output_list_get_max_scale(const struct wl_list* list)
 {
 	struct output* output;
 
-        int32_t scale = 1;
+	int32_t scale = 1;
 
 	wl_list_for_each(output, list, link)
-                if (output->scale > scale)
-                        scale = output->scale;
+		if (output->has_surface && output->scale > scale)
+			scale = output->scale;
 
-        return scale;
+	return scale;
 }
 
 struct output* output_new(struct wl_output* wl_output, uint32_t id)
@@ -89,6 +89,7 @@ struct output* output_new(struct wl_output* wl_output, uint32_t id)
 
 	output->wl_output = wl_output;
 	output->id = id;
+	output->has_surface = false;
 
 	wl_output_add_listener(output->wl_output, &output_listener,
 			output);
@@ -102,6 +103,17 @@ struct output* output_find_by_id(struct wl_list* list, uint32_t id)
 
 	wl_list_for_each(output, list, link)
 		if (output->id == id)
+			return output;
+
+	return NULL;
+}
+
+struct output* output_find_by_wl_output(struct wl_list* list, struct wl_output* wl_output)
+{
+	struct output* output;
+
+	wl_list_for_each(output, list, link)
+		if (output->wl_output == wl_output)
 			return output;
 
 	return NULL;

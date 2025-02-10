@@ -18,6 +18,7 @@
 
 #include <wayland-client.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 struct output {
 	struct wl_output* wl_output;
@@ -25,6 +26,7 @@ struct output {
 
 	uint32_t id;
 	int32_t scale;
+	bool has_surface;
 };
 
 struct output* output_new(struct wl_output* wl_output, uint32_t id);
@@ -32,5 +34,6 @@ void output_destroy(struct output* output);
 
 void output_list_destroy(struct wl_list* list);
 struct output* output_find_by_id(struct wl_list* list, uint32_t id);
+struct output* output_find_by_wl_output(struct wl_list* list, struct wl_output* wl_output);
 int32_t output_list_get_max_scale(const struct wl_list* list);
 
