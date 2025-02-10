@@ -62,6 +62,8 @@ struct window {
 	struct xdg_surface* xdg_surface;
 	struct xdg_toplevel* xdg_toplevel;
 
+	int preferred_buffer_scale;
+
 	struct buffer* buffers[3];
 	struct buffer* back_buffer;
 	int buffer_index;
@@ -140,8 +142,12 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 		const char* interface, uint32_t version)
 {
 	if (strcmp(interface, "wl_compositor") == 0) {
-		wl_compositor = wl_registry_bind(registry, id,
-				&wl_compositor_interface, 4);
+		if (version >= 6)
+			wl_compositor = wl_registry_bind(registry, id,
+					&wl_compositor_interface,  6);
+		else
+			wl_compositor = wl_registry_bind(registry, id,
+						&wl_compositor_interface,  4);
 	} else if (strcmp(interface, "xdg_wm_base") == 0) {
 		xdg_wm_base = wl_registry_bind(registry, id, &xdg_wm_base_interface, 1);
 	} else if (strcmp(interface, "wl_shm") == 0) {
@@ -365,9 +371,17 @@ static void window_attach(struct window* w, int x, int y)
 			window->back_buffer->scale);
 }
 
+int32_t window_get_scale(struct window* w)
+{
+	if (w->preferred_buffer_scale)
+		return w->preferred_buffer_scale;
+
+	return output_list_get_max_scale(&outputs);
+}
+
 static struct point surface_coord_to_buffer_coord(double x, double y)
 {
-	double scale = output_list_get_max_scale(&outputs);
+	double scale = window_get_scale(window);
 
 	struct point result = {
 		.x = round(x * scale),
@@ -379,7 +393,7 @@ static struct point surface_coord_to_buffer_coord(double x, double y)
 
 static struct point buffer_coord_to_surface_coord(double x, double y)
 {
-	double scale = output_list_get_max_scale(&outputs);
+	double scale = window_get_scale(window);
 
 	struct point result = {
 		.x = x / scale,
@@ -505,7 +519,7 @@ static void window_resize(struct window* w, int width, int height, int scale)
 static void xdg_toplevel_configure(void* data, struct xdg_toplevel* toplevel,
 		int32_t width, int32_t height, struct wl_array* state)
 {
-	int32_t scale = output_list_get_max_scale(&outputs);
+	int32_t scale = window_get_scale(window);
 	window_resize(data, width, height, scale);
 }
 
@@ -540,7 +554,8 @@ static void wl_surface_leave(void* data, struct wl_surface* wl_surface,
 static void wl_surface_preferred_buffer_scale(void* data,
 		struct wl_surface* wl_surface, int factor)
 {
-	// TODO
+	struct window * w = data;
+	w->preferred_buffer_scale = factor;
 }
 
 static void wl_surface_preferred_buffer_transform(void* data,
@@ -560,6 +575,7 @@ static struct window* window_create(const char* app_id, const char* title)
 	if (!w)
 		return NULL;
 
+	w->preferred_buffer_scale = 0;
 	pixman_region_init(&w->current_damage);
 
 	w->wl_surface = wl_compositor_create_surface(wl_compositor);
@@ -694,7 +710,7 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 		window = window_create(app_id, vnc_client_get_desktop_name(client));
 		window->vnc = client;
 
-		int32_t scale = output_list_get_max_scale(&outputs);
+		int32_t scale = window_get_scale(window);
 		window_resize(window, width, height, scale);
 	}
 
@@ -766,7 +782,7 @@ static void render_from_vnc(void)
 	region_translate(&buffer_damage, &damage_scaled, x_pos, y_pos);
 	pixman_region_clear(&damage_scaled);
 
-	double output_scale = output_list_get_max_scale(&outputs);
+	double output_scale = window_get_scale(window);
 	struct point scoord = buffer_coord_to_surface_coord(x_pos, y_pos);
 	region_scale(&damage_scaled, &window->current_damage,
 			scale / output_scale);
