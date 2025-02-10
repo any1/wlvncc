@@ -519,6 +519,41 @@ static const struct xdg_toplevel_listener xdg_toplevel_listener = {
 	.close = xdg_toplevel_close,
 };
 
+static void wl_surface_enter(void* data, struct wl_surface* wl_surface,
+		struct wl_output* wl_output)
+{
+	struct output* output = output_find_by_wl_output(&outputs, wl_output);
+	assert(output);
+
+	output->has_surface = true;
+}
+
+static void wl_surface_leave(void* data, struct wl_surface* wl_surface,
+		struct wl_output* wl_output)
+{
+	struct output* output = output_find_by_wl_output(&outputs, wl_output);
+	assert(output);
+
+	output->has_surface = false;
+}
+
+static void wl_surface_preferred_buffer_scale(void* data,
+		struct wl_surface* wl_surface, int factor)
+{
+	// TODO
+}
+
+static void wl_surface_preferred_buffer_transform(void* data,
+		struct wl_surface* wl_surface, unsigned int transform)
+{ }
+
+static const struct wl_surface_listener wl_surface_listener = {
+	.enter = wl_surface_enter,
+	.leave = wl_surface_leave,
+	.preferred_buffer_scale = wl_surface_preferred_buffer_scale,
+	.preferred_buffer_transform = wl_surface_preferred_buffer_transform,
+};
+
 static struct window* window_create(const char* app_id, const char* title)
 {
 	struct window* w = calloc(1, sizeof(*w));
@@ -530,6 +565,8 @@ static struct window* window_create(const char* app_id, const char* title)
 	w->wl_surface = wl_compositor_create_surface(wl_compositor);
 	if (!w->wl_surface)
 		goto wl_surface_failure;
+
+	wl_surface_add_listener(w->wl_surface, &wl_surface_listener, w);
 
 	w->xdg_surface = xdg_wm_base_get_xdg_surface(xdg_wm_base, w->wl_surface);
 	if (!w->xdg_surface)
