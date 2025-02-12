@@ -102,6 +102,7 @@ static uint64_t last_canary_tick;
 struct shortcuts_inhibitor* inhibitor;
 
 static bool have_egl = false;
+static bool shortcut_inhibit = false;
 
 static uint32_t shm_format = DRM_FORMAT_INVALID;
 static uint32_t dmabuf_format = DRM_FORMAT_INVALID;
@@ -149,6 +150,8 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 		zwp_linux_dmabuf_v1 = wl_registry_bind(registry, id,
 				&zwp_linux_dmabuf_v1_interface, 4);
 	} else if (strcmp(interface, zwp_keyboard_shortcuts_inhibit_manager_v1_interface.name) == 0) {
+		if (!shortcut_inhibit)
+			return;
 		keyboard_shortcuts_inhibitor = wl_registry_bind(registry, id,
 				&zwp_keyboard_shortcuts_inhibit_manager_v1_interface, 1);
 		inhibitor = inhibitor_new(keyboard_shortcuts_inhibitor);
@@ -951,6 +954,7 @@ Usage: wlvncc <address> [port]\n\
                              hextile, zlib, corre, rre, raw, open-h264.\n\
     -h,--help                Get help.\n\
     -n,--hide-cursor         Hide the client-side cursor.\n\
+    -i,--shortcut-inhibit    Enable the shortcut inhibitor while being focused.\n\
     -q,--quality             Quality level (0 - 9).\n\
     -t,--tls-cert            Use given TLS cert for authenticating server.\n\
     -s,--use-sw-renderer     Use software rendering.\n\
@@ -967,7 +971,7 @@ int main(int argc, char* argv[])
 	const char* encodings = NULL;
 	int quality = -1;
 	int compression = -1;
-	static const char* shortopts = "a:A:q:c:e:hnst:";
+	static const char* shortopts = "a:A:q:c:e:hnist:";
 	bool use_sw_renderer = false;
 
 	static const struct option longopts[] = {
@@ -976,6 +980,7 @@ int main(int argc, char* argv[])
 		{ "compression", required_argument, NULL, 'c' },
 		{ "encodings", required_argument, NULL, 'e' },
 		{ "hide-cursor", no_argument, NULL, 'n' },
+		{ "shortcut-inhibit", no_argument, NULL, 'i' },
 		{ "help", no_argument, NULL, 'h' },
 		{ "quality", required_argument, NULL, 'q' },
 		{ "tls-cert", required_argument, NULL, 't' },
@@ -1006,6 +1011,9 @@ int main(int argc, char* argv[])
 			break;
 		case 'n':
 			cursor_type = POINTER_CURSOR_NONE;
+			break;
+		case 'i':
+			shortcut_inhibit = true;
 			break;
 		case 's':
 			use_sw_renderer = true;
