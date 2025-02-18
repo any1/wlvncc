@@ -690,10 +690,6 @@ void on_keyboard_event(struct keyboard_collection* collection,
 		return;
 	}
 
-	if (!inhibitor_is_inhibited(inhibitor, keyboard->seat)) {
-		return;
-	}
-
 	char name[256];
 	xkb_keysym_get_name(symbol, name, sizeof(name));
 
