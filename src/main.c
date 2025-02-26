@@ -34,6 +34,8 @@
 #include <fcntl.h>
 
 #include "inhibitor.h"
+#include "viewporter-v1.h"
+#include "single-pixel-buffer-v1.h"
 #include "pixman.h"
 #include "xdg-shell.h"
 #include "shm.h"
@@ -58,11 +60,19 @@ struct point {
 };
 
 struct window {
+	struct wl_buffer* wl_bg_buffer;
+	struct wl_surface* wl_bg_surface;
+	struct xdg_surface* xdg_bg_surface;
+	struct xdg_toplevel* xdg_bg_toplevel;
+	struct wp_viewport* wp_bg_viewport;
+
 	struct wl_surface* wl_surface;
-	struct xdg_surface* xdg_surface;
-	struct xdg_toplevel* xdg_toplevel;
+	struct wl_subsurface* wl_subsurface;
+	struct wp_viewport* wp_viewport;
 
 	int preferred_buffer_scale;
+	int width, height;
+	int32_t scale;
 
 	struct buffer* buffers[3];
 	struct buffer* back_buffer;
@@ -102,6 +112,9 @@ static dev_t dma_dev;
 static int drm_fd = -1;
 static uint64_t last_canary_tick;
 struct shortcuts_inhibitor* inhibitor;
+struct wl_subcompositor* subcompositor;
+struct wp_viewporter* viewporter;
+struct wp_single_pixel_buffer_manager_v1* single_pixel_manager;
 
 static bool have_egl = false;
 static bool shortcut_inhibit = false;
@@ -161,6 +174,12 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 		keyboard_shortcuts_inhibitor = wl_registry_bind(registry, id,
 				&zwp_keyboard_shortcuts_inhibit_manager_v1_interface, 1);
 		inhibitor = inhibitor_new(keyboard_shortcuts_inhibitor);
+	} else if (strcmp(interface, wl_subcompositor_interface.name) == 0) {
+		subcompositor = wl_registry_bind(registry, id, &wl_subcompositor_interface, 1);
+	} else if (strcmp(interface, wp_viewporter_interface.name) == 0) {
+		viewporter = wl_registry_bind(registry, id, &wp_viewporter_interface, 1);
+	} else if (strcmp(interface, wp_single_pixel_buffer_manager_v1_interface.name) == 0) {
+		single_pixel_manager = wl_registry_bind(registry, id, &wp_single_pixel_buffer_manager_v1_interface, 1);
 	} else if (strcmp(interface, "wl_seat") == 0) {
 		struct wl_seat* wl_seat;
 		wl_seat = wl_registry_bind(registry, id, &wl_seat_interface, 5);
@@ -363,12 +382,11 @@ static int init_signal_handler(void)
 	return rc;
 }
 
-static void window_attach(struct window* w, int x, int y)
+static void window_attach(struct window* w)
 {
+	wl_surface_attach(w->wl_bg_surface, w->wl_bg_buffer, 0, 0);
 	w->back_buffer->is_attached = true;
-	wl_surface_attach(w->wl_surface, w->back_buffer->wl_buffer, x, y);
-	wl_surface_set_buffer_scale(window->wl_surface,
-			window->back_buffer->scale);
+	wl_surface_attach(w->wl_surface, w->back_buffer->wl_buffer, 0, 0);
 }
 
 int32_t window_get_scale(struct window* w)
@@ -391,53 +409,37 @@ static struct point surface_coord_to_buffer_coord(double x, double y)
 	return result;
 }
 
-static struct point buffer_coord_to_surface_coord(double x, double y)
-{
-	double scale = window_get_scale(window);
-
-	struct point result = {
-		.x = x / scale,
-		.y = y / scale,
-	};
-
-	return result;
-}
-
-static void window_calculate_transform(struct window* w, double* scale,
-		int* x_pos, int* y_pos)
+static void window_calculate_buffer(struct window* w, double* scale,
+		int* width, int* height)
 {
 	double src_width = vnc_client_get_width(w->vnc);
 	double src_height = vnc_client_get_height(w->vnc);
-	double dst_width = w->back_buffer->width;
-	double dst_height = w->back_buffer->height;
+	double dst_width = w->width * w->scale;
+	double dst_height = w->height * w->scale;
 
 	double hratio = (double)dst_width / (double)src_width;
 	double vratio = (double)dst_height / (double)src_height;
 	*scale = fmin(hratio, vratio);
 
 	if (hratio < vratio + 0.01 && hratio > vratio - 0.01) {
-		*x_pos = 0;
-		*y_pos = 0;
+		*width = dst_width;
+		*height = dst_height;
 	} else if (hratio < vratio) {
-		*x_pos = 0;
-		*y_pos = round(dst_height / 2.0 - *scale * src_height / 2.0);
+		*width = dst_width;
+		*height = src_height * *scale;
 	} else {
-		*x_pos = round(dst_width / 2.0 - *scale * src_width / 2.0);
-		*y_pos = 0;
+		*width = src_width * *scale;
+		*height = dst_height;
 	}
 }
 
 static void window_transfer_pixels(struct window* w)
 {
-	double scale;
-	int x_pos, y_pos;
-	window_calculate_transform(w, &scale, &x_pos, &y_pos);
-
 	if (w->vnc->n_av_frames != 0) {
 		assert(have_egl);
 
 		render_av_frames_egl(w->back_buffer, w->vnc->av_frames,
-				w->vnc->n_av_frames, scale, x_pos, y_pos);
+				w->vnc->n_av_frames);
 		return;
 	}
 
@@ -452,13 +454,14 @@ static void window_transfer_pixels(struct window* w)
 	};
 
 	if (have_egl)
-		render_image_egl(w->back_buffer, &image, scale, x_pos, y_pos);
+		render_image_egl(w->back_buffer, &image);
 	else
-		render_image(w->back_buffer, &image, scale, x_pos, y_pos);
+		render_image(w->back_buffer, &image);
 }
 
 static void window_commit(struct window* w)
 {
+	wl_surface_commit(w->wl_bg_surface);
 	wl_surface_commit(w->wl_surface);
 }
 
@@ -468,9 +471,9 @@ static void window_swap(struct window* w)
 	w->back_buffer = w->buffers[w->buffer_index];
 }
 
-static void window_damage(struct window* w, int x, int y, int width, int height)
+static void window_damage_buffer(struct window* w, int x, int y, int width, int height)
 {
-	wl_surface_damage(w->wl_surface, x, y, width, height);
+	wl_surface_damage_buffer(w->wl_surface, x, y, width, height);
 }
 
 static void window_configure(struct window* w)
@@ -484,43 +487,45 @@ static void xdg_surface_configure(void* data, struct xdg_surface* surface,
 	struct window* w = data;
 	xdg_surface_ack_configure(surface, serial);
 	window_configure(w);
-	inhibitor_init(inhibitor, w->wl_surface, &seats);
+	// dunno why it does not work with the subsurface
+	inhibitor_init(inhibitor, w->wl_bg_surface, &seats);
 }
 
 static const struct xdg_surface_listener xdg_surface_listener = {
 	.configure = xdg_surface_configure,
 };
 
-static void window_resize(struct window* w, int width, int height, int scale)
+static void window_resize(struct window* w, int width, int height)
 {
+	int32_t scale = window_get_scale(window);
+
 	if (width == 0 || height == 0 || scale == 0)
 		return;
-
-	if (w->back_buffer && w->back_buffer->width == width &&
-			w->back_buffer->height == height &&
-			w->back_buffer->scale == scale)
+	if (w->width == width && w->height == height && w->scale == scale)
 		return;
 
-	for (int i = 0; i < 3; ++i)
-		buffer_destroy(w->buffers[i]);
+	w->width = width;
+	w->height = height;
+	w->scale = scale;
 
-	for (int i = 0; i < 3; ++i) {
-		w->buffers[i] = have_egl
-			? buffer_create_dmabuf(scale * width, scale * height,
-					dmabuf_format)
-			: buffer_create_shm(scale * width, scale * height,
-					scale * 4 * width, shm_format);
-		w->buffers[i]->scale = scale;
-	}
+	double new_scale;
+	int new_width, new_height;
+	window_calculate_buffer(window, &new_scale, &new_width, &new_height);
 
-	w->back_buffer = w->buffers[0];
+	new_width /= scale;
+	new_height /= scale;
+
+	wp_viewport_set_destination(w->wp_bg_viewport, width, height);
+	wp_viewport_set_destination(w->wp_viewport, new_width, new_height);
+	wl_subsurface_set_position(w->wl_subsurface,
+		(width - new_width) / 2 , (height - new_height) / 2);
+	window_commit(w);
 }
 
 static void xdg_toplevel_configure(void* data, struct xdg_toplevel* toplevel,
 		int32_t width, int32_t height, struct wl_array* state)
 {
-	int32_t scale = window_get_scale(window);
-	window_resize(data, width, height, scale);
+	window_resize(data, width, height);
 }
 
 static void xdg_toplevel_close(void* data, struct xdg_toplevel* toplevel)
@@ -578,35 +583,65 @@ static struct window* window_create(const char* app_id, const char* title)
 	w->preferred_buffer_scale = 0;
 	pixman_region_init(&w->current_damage);
 
+	w->wl_bg_buffer = wp_single_pixel_buffer_manager_v1_create_u32_rgba_buffer(
+			single_pixel_manager, 0, 0, 0, UINT32_MAX);
+
+	w->wl_bg_surface = wl_compositor_create_surface(wl_compositor);
+	if (!w->wl_bg_surface)
+		goto wl_bg_surface_failure;
+
+	wl_surface_add_listener(w->wl_bg_surface, &wl_surface_listener, w);
+
+	w->wp_bg_viewport = wp_viewporter_get_viewport(viewporter, w->wl_bg_surface);
+	if (!w->wp_bg_viewport)
+		goto wp_bg_viewport_failure;
+
+	w->xdg_bg_surface = xdg_wm_base_get_xdg_surface(xdg_wm_base, w->wl_bg_surface);
+	if (!w->xdg_bg_surface)
+		goto xdg_surface_failure;
+
+	xdg_surface_add_listener(w->xdg_bg_surface, &xdg_surface_listener, w);
+
+	w->xdg_bg_toplevel = xdg_surface_get_toplevel(w->xdg_bg_surface);
+	if (!w->xdg_bg_toplevel)
+		goto xdg_toplevel_failure;
+
+	xdg_toplevel_add_listener(w->xdg_bg_toplevel, &xdg_toplevel_listener, w);
+
+	xdg_toplevel_set_app_id(w->xdg_bg_toplevel, app_id);
+	xdg_toplevel_set_title(w->xdg_bg_toplevel, title);
+
 	w->wl_surface = wl_compositor_create_surface(wl_compositor);
 	if (!w->wl_surface)
 		goto wl_surface_failure;
 
-	wl_surface_add_listener(w->wl_surface, &wl_surface_listener, w);
+	w->wl_subsurface = wl_subcompositor_get_subsurface(subcompositor, w->wl_surface, w->wl_bg_surface);
+	if (!w->wl_subsurface)
+		goto wl_subsurface_failure;
 
-	w->xdg_surface = xdg_wm_base_get_xdg_surface(xdg_wm_base, w->wl_surface);
-	if (!w->xdg_surface)
-		goto xdg_surface_failure;
+	wl_subsurface_set_desync(w->wl_subsurface);
+	w->wp_viewport = wp_viewporter_get_viewport(viewporter, w->wl_surface);
+	if (!w->wp_viewport)
+		goto wp_viewport_failure;
 
-	xdg_surface_add_listener(w->xdg_surface, &xdg_surface_listener, w);
-
-	w->xdg_toplevel = xdg_surface_get_toplevel(w->xdg_surface);
-	if (!w->xdg_toplevel)
-		goto xdg_toplevel_failure;
-
-	xdg_toplevel_add_listener(w->xdg_toplevel, &xdg_toplevel_listener, w);
-
-	xdg_toplevel_set_app_id(w->xdg_toplevel, app_id);
-	xdg_toplevel_set_title(w->xdg_toplevel, title);
+	wl_surface_commit(w->wl_bg_surface);
 	wl_surface_commit(w->wl_surface);
 
 	return w;
 
-xdg_toplevel_failure:
-	xdg_surface_destroy(w->xdg_surface);
-xdg_surface_failure:
+wp_viewport_failure:
+	wl_subsurface_destroy(w->wl_subsurface);
+wl_subsurface_failure:
 	wl_surface_destroy(w->wl_surface);
 wl_surface_failure:
+	xdg_toplevel_destroy(w->xdg_bg_toplevel);
+xdg_toplevel_failure:
+	xdg_surface_destroy(w->xdg_bg_surface);
+xdg_surface_failure:
+	wp_viewport_destroy(w->wp_bg_viewport);
+wp_bg_viewport_failure:
+	wl_surface_destroy(w->wl_bg_surface);
+wl_bg_surface_failure:
 	free(w);
 	return NULL;
 }
@@ -615,11 +650,16 @@ static void window_destroy(struct window* w)
 {
 	for (int i = 0; i < 3; ++i)
 		buffer_destroy(w->buffers[i]);
+	wl_buffer_destroy(w->wl_bg_buffer);
 
 	free(w->vnc_fb);
-	xdg_toplevel_destroy(w->xdg_toplevel);
-	xdg_surface_destroy(w->xdg_surface);
+	wp_viewport_destroy(w->wp_viewport);
+	wl_subsurface_destroy(w->wl_subsurface);
 	wl_surface_destroy(w->wl_surface);
+	xdg_toplevel_destroy(w->xdg_bg_toplevel);
+	xdg_surface_destroy(w->xdg_bg_surface);
+	wp_viewport_destroy(w->wp_bg_viewport);
+	wl_surface_destroy(w->wl_bg_surface);
 	pixman_region_fini(&w->current_damage);
 	free(w);
 }
@@ -630,15 +670,15 @@ void on_pointer_event(struct pointer_collection* collection,
 	struct vnc_client* client = collection->userdata;
 
 	double scale;
-	int x_pos, y_pos;
-	window_calculate_transform(window, &scale, &x_pos, &y_pos);
+	int width, height;
+	window_calculate_buffer(window, &scale, &width, &height);
 
 	struct point coord = surface_coord_to_buffer_coord(
 			wl_fixed_to_double(pointer->x),
 			wl_fixed_to_double(pointer->y));
 
-	int x = round((coord.x - (double)x_pos) / scale);
-	int y = round((coord.y - (double)y_pos) / scale);
+	int x = round(coord.x / scale);
+	int y = round(coord.y / scale);
 
 	enum pointer_button_mask pressed = pointer->pressed;
 	int vertical_steps = pointer->vertical_scroll_steps;
@@ -675,6 +715,11 @@ void on_pointer_event(struct pointer_collection* collection,
 	}
 }
 
+bool pointer_handle_event(struct wl_surface* wl_surface)
+{
+	return window->wl_surface == wl_surface;
+}
+
 void on_keyboard_event(struct keyboard_collection* collection,
 		struct keyboard* keyboard, uint32_t key, bool is_pressed)
 {
@@ -706,9 +751,15 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 		window = window_create(app_id, vnc_client_get_desktop_name(client));
 		window->vnc = client;
 
-		int32_t scale = window_get_scale(window);
-		window_resize(window, width, height, scale);
+		window_resize(window, width, height);
 	}
+
+	for (int i = 0; i < 3; ++i) {
+		window->buffers[i] = have_egl
+			? buffer_create_dmabuf(width, height, dmabuf_format)
+			: buffer_create_shm(width, height, 4 * width, shm_format);
+	}
+	window->back_buffer = window->buffers[0];
 
 	free(window->vnc_fb);
 	window->vnc_fb = malloc(height * stride);
@@ -750,7 +801,7 @@ static void window_damage_region(struct window* w,
 		int width = box[i].x2 - x;
 		int height = box[i].y2 - y;
 
-		window_damage(w, x, y, width, height);
+		window_damage_buffer(w, x, y, width, height);
 	}
 }
 
@@ -766,30 +817,10 @@ static void render_from_vnc(void)
 	if (window->back_buffer->is_attached)
 		fprintf(stderr, "Oops, back-buffer is still attached.\n");
 
-	window_attach(window, 0, 0);
+	window_attach(window);
 
-	double scale;
-	int x_pos, y_pos;
-	window_calculate_transform(window, &scale, &x_pos, &y_pos);
-
-	struct pixman_region16 damage_scaled = { 0 }, buffer_damage = { 0 },
-			       surface_damage = { 0 };
-	region_scale(&damage_scaled, &window->current_damage, scale);
-	region_translate(&buffer_damage, &damage_scaled, x_pos, y_pos);
-	pixman_region_clear(&damage_scaled);
-
-	double output_scale = window_get_scale(window);
-	struct point scoord = buffer_coord_to_surface_coord(x_pos, y_pos);
-	region_scale(&damage_scaled, &window->current_damage,
-			scale / output_scale);
-	region_translate(&surface_damage, &damage_scaled, scoord.x, scoord.y);
-	pixman_region_fini(&damage_scaled);
-
-	apply_buffer_damage(&buffer_damage);
-	window_damage_region(window, &surface_damage);
-
-	pixman_region_fini(&surface_damage);
-	pixman_region_fini(&buffer_damage);
+	apply_buffer_damage(&window->current_damage);
+	window_damage_region(window, &window->current_damage);
 
 	window_transfer_pixels(window);
 
@@ -1115,6 +1146,7 @@ int main(int argc, char* argv[])
 		goto pointer_failure;
 
 	pointers->on_frame = on_pointer_event;
+	pointers->handle_event = pointer_handle_event;
 
 	keyboards = keyboard_collection_new();
 	if (!keyboards)
@@ -1135,6 +1167,9 @@ int main(int argc, char* argv[])
 	assert(wl_compositor);
 	assert(wl_shm);
 	assert(xdg_wm_base);
+	assert(subcompositor);
+	assert(viewporter);
+	assert(single_pixel_manager);
 
 	wl_shm_add_listener(wl_shm, &shm_listener, NULL);
 

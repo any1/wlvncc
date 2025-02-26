@@ -469,8 +469,7 @@ void import_image_with_damage(const struct image* src,
 	glPixelStorei(GL_UNPACK_SKIP_ROWS_EXT, 0);
 }
 
-void render_image_egl(struct buffer* dst, const struct image* src,
-		double scale, int x_pos, int y_pos)
+void render_image_egl(struct buffer* dst, const struct image* src)
 {
 	struct fbo_info fbo;
 	fbo_from_gbm_bo(&fbo, dst->bo);
@@ -502,9 +501,7 @@ void render_image_egl(struct buffer* dst, const struct image* src,
 
 	glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, 0);
 
-	int width = round((double)src->width * scale);
-	int height = round((double)src->height * scale);
-	glViewport(x_pos, y_pos, width, height);
+	glViewport(0, 0, src->width, src->height);
 
 	glUseProgram(shader_program);
 
@@ -529,7 +526,7 @@ void render_image_egl(struct buffer* dst, const struct image* src,
 }
 
 void render_av_frames_egl(struct buffer* dst, struct vnc_av_frame** src,
-		int n_av_frames, double scale, int x_pos, int y_pos)
+		int n_av_frames)
 {
 	struct fbo_info fbo;
 	fbo_from_gbm_bo(&fbo, dst->bo);
@@ -545,9 +542,7 @@ void render_av_frames_egl(struct buffer* dst, struct vnc_av_frame** src,
 	for (int i = 0; i < n_av_frames; ++i) {
 		const struct vnc_av_frame* frame = src[i];
 
-		int width = round((double)frame->width * scale);
-		int height = round((double)frame->height * scale);
-		glViewport(x_pos + frame->x, y_pos + frame->y, width, height);
+		glViewport(frame->x, frame->y, frame->width, frame->height);
 
 		GLuint tex = texture_from_av_frame(frame->frame);
 		glBindTexture(GL_TEXTURE_EXTERNAL_OES, tex);
