@@ -57,6 +57,7 @@ struct pointer* pointer_new(struct wl_pointer* wl_pointer,
 	self->seat = seat;
 	self->wl_pointer = wl_pointer;
 	self->cursor_type = cursor_type;
+	self->handle_event = false;
 
 	if (cursor_type == POINTER_CURSOR_LEFT_PTR)
 		self->cursor_theme = pointer_load_cursor_theme();
@@ -163,6 +164,10 @@ static void pointer_enter(void* data, struct wl_pointer* wl_pointer,
 		pointer_collection_find_wl_pointer(self, wl_pointer);
 	assert(pointer);
 
+	pointer->handle_event = self->handle_event(surface);
+	if (!pointer->handle_event)
+		return;
+
 	pointer->serial = serial;
 
 	pointer_update_cursor(pointer);
@@ -177,6 +182,10 @@ static void pointer_leave(void* data, struct wl_pointer* wl_pointer,
 		pointer_collection_find_wl_pointer(self, wl_pointer);
 	assert(pointer);
 
+	pointer->handle_event = self->handle_event(surface);
+	if (!pointer->handle_event)
+		return;
+
 	pointer->serial = serial;
 	inhibitor_release(inhibitor, pointer->seat);
 }
@@ -188,6 +197,9 @@ static void pointer_motion(void* data, struct wl_pointer* wl_pointer,
 	struct pointer* pointer =
 		pointer_collection_find_wl_pointer(self, wl_pointer);
 	assert(pointer);
+
+	if (!pointer->handle_event)
+		return;
 
 	pointer->x = x;
 	pointer->y = y;
@@ -215,6 +227,9 @@ static void pointer_button(void* data, struct wl_pointer* wl_pointer,
 		pointer_collection_find_wl_pointer(self, wl_pointer);
 	assert(pointer);
 
+	if (!pointer->handle_event)
+		return;
+
 	pointer->serial = serial;
 
 	switch (button) {
@@ -237,6 +252,9 @@ static void pointer_axis(void* data, struct wl_pointer* wl_pointer, uint32_t t,
 	struct pointer_collection* self = data;
 	struct pointer* pointer =
 		pointer_collection_find_wl_pointer(self, wl_pointer);
+
+	if (!pointer->handle_event)
+		return;
 
 	switch (axis) {
 	case WL_POINTER_AXIS_VERTICAL_SCROLL:
@@ -272,6 +290,9 @@ static void pointer_frame(void* data, struct wl_pointer* wl_pointer)
 	struct pointer_collection* self = data;
 	struct pointer* pointer =
 		pointer_collection_find_wl_pointer(self, wl_pointer);
+
+	if (!pointer->handle_event)
+		return;
 
 	double vertical_steps = trunc(pointer->vertical_axis_value / STEP_SIZE);
 	pointer->vertical_axis_value -= vertical_steps * STEP_SIZE;
