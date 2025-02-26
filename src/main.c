@@ -545,6 +545,8 @@ static void wl_surface_enter(void* data, struct wl_surface* wl_surface,
 	assert(output);
 
 	output->has_surface = true;
+
+	window_resize(window, window->width, window->height);
 }
 
 static void wl_surface_leave(void* data, struct wl_surface* wl_surface,
@@ -554,6 +556,8 @@ static void wl_surface_leave(void* data, struct wl_surface* wl_surface,
 	assert(output);
 
 	output->has_surface = false;
+
+	window_resize(window, window->width, window->height);
 }
 
 static void wl_surface_preferred_buffer_scale(void* data,
@@ -561,6 +565,8 @@ static void wl_surface_preferred_buffer_scale(void* data,
 {
 	struct window * w = data;
 	w->preferred_buffer_scale = factor;
+
+	window_resize(window, window->width, window->height);
 }
 
 static void wl_surface_preferred_buffer_transform(void* data,
