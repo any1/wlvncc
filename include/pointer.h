@@ -43,6 +43,7 @@ struct pointer {
 	struct seat* seat;
 
 	uint32_t serial;
+	bool handle_event;
 	enum pointer_button_mask pressed;
 	wl_fixed_t x, y;
 
@@ -61,6 +62,7 @@ struct pointer {
 struct pointer_collection {
 	struct wl_list pointers;
 	void (*on_frame)(struct pointer_collection*, struct pointer*);
+	bool (*handle_event)(struct wl_surface*);
 	enum pointer_cursor_type cursor_type;
 	void* userdata;
 };
