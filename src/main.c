@@ -60,6 +60,7 @@ struct point {
 };
 
 struct window {
+	struct wl_shm* wl_bg_pixels; // optional
 	struct wl_buffer* wl_bg_buffer;
 	struct wl_surface* wl_bg_surface;
 	struct xdg_surface* xdg_bg_surface;
@@ -580,6 +581,40 @@ static const struct wl_surface_listener wl_surface_listener = {
 	.preferred_buffer_transform = wl_surface_preferred_buffer_transform,
 };
 
+struct wl_buffer* create_single_pixel_buffer_fallback(struct wl_shm** pixels,
+		struct wl_buffer** wl_buffer, uint32_t format)
+{
+	int fd = shm_alloc_fd(4);
+	if (fd < 0)
+		return NULL;
+
+	*pixels = mmap(NULL, 4, PROT_READ | PROT_WRITE,
+			MAP_SHARED, fd, 0);
+	if (!*pixels)
+		goto mmap_failure;
+
+	struct wl_shm_pool* pool = wl_shm_create_pool(wl_shm, fd, 4);
+	if (!pool)
+		goto pool_failure;
+
+	*wl_buffer = wl_shm_pool_create_buffer(pool, 0, 1, 1,
+			4, drm_format_to_wl_shm(format));
+	wl_shm_pool_destroy(pool);
+	if (!*wl_buffer)
+		goto shm_failure;
+
+	close(fd);
+
+	return *wl_buffer;
+
+shm_failure:
+pool_failure:
+	munmap(*pixels, 4);
+mmap_failure:
+	close(fd);
+	return NULL;
+}
+
 static struct window* window_create(const char* app_id, const char* title)
 {
 	struct window* w = calloc(1, sizeof(*w));
@@ -589,8 +624,13 @@ static struct window* window_create(const char* app_id, const char* title)
 	w->preferred_buffer_scale = 0;
 	pixman_region_init(&w->current_damage);
 
-	w->wl_bg_buffer = wp_single_pixel_buffer_manager_v1_create_u32_rgba_buffer(
-			single_pixel_manager, 0, 0, 0, UINT32_MAX);
+	if (single_pixel_manager)
+		w->wl_bg_buffer = wp_single_pixel_buffer_manager_v1_create_u32_rgba_buffer(
+				single_pixel_manager, 0, 0, 0, UINT32_MAX);
+	else
+		create_single_pixel_buffer_fallback(&w->wl_bg_pixels, &w->wl_bg_buffer,
+			shm_format);
+	assert(w->wl_bg_buffer);
 
 	w->wl_bg_surface = wl_compositor_create_surface(wl_compositor);
 	if (!w->wl_bg_surface)
@@ -656,6 +696,8 @@ static void window_destroy(struct window* w)
 {
 	for (int i = 0; i < 3; ++i)
 		buffer_destroy(w->buffers[i]);
+	if (w->wl_bg_pixels)
+		munmap(w->wl_bg_pixels, 4);
 	wl_buffer_destroy(w->wl_bg_buffer);
 
 	free(w->vnc_fb);
@@ -1175,7 +1217,6 @@ int main(int argc, char* argv[])
 	assert(xdg_wm_base);
 	assert(subcompositor);
 	assert(viewporter);
-	assert(single_pixel_manager);
 
 	wl_shm_add_listener(wl_shm, &shm_listener, NULL);
 
