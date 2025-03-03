@@ -17,6 +17,8 @@ client_protocols = [
 	'xdg-shell.xml',
 	'linux-dmabuf-v1.xml',
 	'keyboard-shortcuts-inhibit-unstable-v1.xml',
+	'viewporter-v1.xml',
+	'single-pixel-buffer-v1.xml',
 ]
 
 client_protos_src = []

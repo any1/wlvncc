@@ -24,8 +24,7 @@
 #include <pixman.h>
 #include <assert.h>
 
-void render_image(struct buffer* dst, const struct image* src, double scale,
-		int x_pos, int y_pos)
+void render_image(struct buffer* dst, const struct image* src)
 {
 	bool ok __attribute__((unused));
 
@@ -43,18 +42,12 @@ void render_image(struct buffer* dst, const struct image* src, double scale,
 	pixman_image_t* srcimg = pixman_image_create_bits_no_clear(src_fmt,
 			src->width, src->height, src->pixels, src->stride);
 
-	pixman_fixed_t src_scale = pixman_double_to_fixed(1.0 / scale);
-
-	pixman_transform_t xform;
-	pixman_transform_init_scale(&xform, src_scale, src_scale);
-	pixman_image_set_transform(srcimg, &xform);
-
 	pixman_image_set_clip_region(dstimg, &dst->damage);
 
 	pixman_image_composite(PIXMAN_OP_SRC, srcimg, NULL, dstimg,
 			0, 0,
 			0, 0,
-			x_pos, y_pos,
+			0, 0,
 			dst->width, dst->height);
 
 	pixman_image_unref(srcimg);

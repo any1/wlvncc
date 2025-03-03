@@ -27,5 +27,4 @@ struct image {
 	struct pixman_region16* damage;
 };
 
-void render_image(struct buffer* dst, const struct image* src, double scale,
-		int pos_x, int pos_y);
+void render_image(struct buffer* dst, const struct image* src);
