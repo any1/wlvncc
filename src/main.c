@@ -98,7 +98,7 @@ static struct wl_list outputs;
 static struct zwp_keyboard_shortcuts_inhibit_manager_v1* keyboard_shortcuts_inhibitor;
 struct pointer_collection* pointers;
 struct keyboard_collection* keyboards;
-static dev_t dma_dev;
+static dev_t dma_dev = 0;
 static int drm_fd = -1;
 static uint64_t last_canary_tick;
 struct shortcuts_inhibitor* inhibitor;
@@ -870,6 +870,22 @@ static int find_render_node(char *node, size_t maxlen) {
 	return r;
 }
 
+static int validate_dma_dev(dev_t device) {
+	drmDevice *dev_ptr;
+
+	if (drmGetDeviceFromDevId(device, 0, &dev_ptr) < 0) {
+		return -1;
+	}
+
+	if (!(dev_ptr->available_nodes & (1 << DRM_NODE_RENDER))) {
+		drmFreeDevice(&dev_ptr);
+		return -1;
+	}
+
+	drmFreeDevice(&dev_ptr);
+	return 0;
+}
+
 static int render_node_from_dev_t(char* node, size_t maxlen, dev_t device)
 {
 	drmDevice *dev_ptr;
@@ -904,7 +920,8 @@ static int init_gbm_device(void)
 	int rc;
 
 	char render_node[256];
-	if (dma_dev) {
+
+	if (dma_dev && validate_dma_dev(dma_dev) == 0) {
 		rc = render_node_from_dev_t(render_node, sizeof(render_node),
 				dma_dev);
 	} else {
