@@ -875,14 +875,28 @@ static int render_node_from_dev_t(char* node, size_t maxlen, dev_t device)
 	drmDevice *dev_ptr;
 
 	if (drmGetDeviceFromDevId(device, 0, &dev_ptr) < 0)
+	{
+		printf("Failed to get DRM device from device ID\n");
 		return -1;
+	}
 
-	if (dev_ptr->available_nodes & (1 << DRM_NODE_RENDER))
-		strlcpy(node, dev_ptr->nodes[DRM_NODE_RENDER], maxlen);
+	int ret = -1;
+
+	if (dev_ptr->available_nodes & (1 << DRM_NODE_RENDER)) {
+		if (dev_ptr->nodes[DRM_NODE_RENDER]) {
+			strncpy(node, dev_ptr->nodes[DRM_NODE_RENDER], maxlen);
+			node[maxlen - 1] = '\0';
+			ret = 0;
+		} else {
+			printf("Render node path is NULL\n");
+		}
+	} else {
+		printf("No render node available for the device\n");
+	}
 
 	drmFreeDevice(&dev_ptr);
 
-	return 0;
+	return ret;
 }
 
 static int init_gbm_device(void)
