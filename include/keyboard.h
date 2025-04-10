@@ -20,6 +20,8 @@
 #include <stdint.h>
 #include <wayland-client.h>
 
+#define PRESSED_KEYS_MAX 256
+
 struct xkb_context;
 struct xkb_keymap;
 struct xkb_state;
@@ -38,6 +40,8 @@ struct keyboard {
 
 	struct keyboard_collection* collection;
 	uint32_t led_state;
+
+	uint32_t pressed_keys[PRESSED_KEYS_MAX];
 
 	bool waiting_for_modifiers;
 };
