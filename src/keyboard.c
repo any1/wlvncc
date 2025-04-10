@@ -23,7 +23,10 @@
 #include <xkbcommon/xkbcommon.h>
 #include <linux/input-event-codes.h>
 
+#include "inhibitor.h"
 #include "keyboard.h"
+
+extern struct shortcuts_inhibitor* inhibitor;
 
 enum keyboard_led_state {
 	KEYBOARD_LED_SCROLL_LOCK = 1 << 0,
@@ -55,6 +58,7 @@ void keyboard_destroy(struct keyboard* self)
 
 	xkb_context_unref(self->context);
 	wl_keyboard_destroy(self->wl_keyboard);
+	inhibitor_destroy(inhibitor);
 	free(self);
 }
 
@@ -132,11 +136,17 @@ static void keyboard_enter(void* data, struct wl_keyboard* wl_keyboard,
 	struct keyboard* keyboard =
 		keyboard_collection_find_wl_keyboard(collection, wl_keyboard);
 	keyboard->waiting_for_modifiers = true;
+
+	inhibitor_inhibit(inhibitor, keyboard->seat);
 }
 
 static void keyboard_leave(void* data, struct wl_keyboard* wl_keyboard,
 		uint32_t serial, struct wl_surface* surface)
 {
+	struct keyboard_collection* collection = data;
+	struct keyboard* keyboard =
+		keyboard_collection_find_wl_keyboard(collection, wl_keyboard);
+	inhibitor_release(inhibitor, keyboard->seat);
 }
 
 static enum xkb_key_direction xbk_key_direction_from_wl_keyboard_key_state(
