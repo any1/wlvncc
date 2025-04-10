@@ -164,6 +164,8 @@ static void pointer_enter(void* data, struct wl_pointer* wl_pointer,
 		pointer_collection_find_wl_pointer(self, wl_pointer);
 	assert(pointer);
 
+	inhibitor_inhibit(inhibitor, pointer->seat);
+
 	pointer->handle_event = self->handle_event(surface);
 	if (!pointer->handle_event)
 		return;
@@ -171,7 +173,6 @@ static void pointer_enter(void* data, struct wl_pointer* wl_pointer,
 	pointer->serial = serial;
 
 	pointer_update_cursor(pointer);
-	inhibitor_inhibit(inhibitor, pointer->seat);
 }
 
 static void pointer_leave(void* data, struct wl_pointer* wl_pointer,
@@ -182,12 +183,13 @@ static void pointer_leave(void* data, struct wl_pointer* wl_pointer,
 		pointer_collection_find_wl_pointer(self, wl_pointer);
 	assert(pointer);
 
+	inhibitor_release(inhibitor, pointer->seat);
+
 	pointer->handle_event = self->handle_event(surface);
 	if (!pointer->handle_event)
 		return;
 
 	pointer->serial = serial;
-	inhibitor_release(inhibitor, pointer->seat);
 }
 
 static void pointer_motion(void* data, struct wl_pointer* wl_pointer,
