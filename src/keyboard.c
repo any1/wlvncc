@@ -44,8 +44,39 @@ struct keyboard* keyboard_new(struct wl_keyboard* wl_keyboard,
 	self->wl_keyboard = wl_keyboard;
 	self->seat = seat;
 	self->context = xkb_context_new(0);
+	wl_list_init(&self->pressed_keys);
 
 	return self;
+}
+
+void pressed_keys_add_key(struct wl_list* pressed_keys, uint32_t key)
+{
+	struct pressed_key* pressed_key = calloc(1, sizeof(*pressed_key));
+	assert(pressed_key);
+	pressed_key->key = key;
+	wl_list_insert(pressed_keys, &pressed_key->link);
+}
+
+void pressed_keys_remove_key(struct wl_list* pressed_keys, uint32_t key)
+{
+	struct pressed_key* tmp;
+	wl_list_for_each(tmp, pressed_keys, link) {
+		if (key == tmp->key) {
+			wl_list_remove(&tmp->link);
+			free(tmp);
+			return;
+		};
+	}
+}
+
+void pressed_keys_destroy(struct wl_list* pressed_keys)
+{
+	struct pressed_key* pressed_key;
+	struct pressed_key* tmp;
+	wl_list_for_each_safe(pressed_key, tmp, pressed_keys, link) {
+		wl_list_remove(&pressed_key->link);
+		free(pressed_key);
+	}
 }
 
 void keyboard_destroy(struct keyboard* self)
@@ -58,6 +89,7 @@ void keyboard_destroy(struct keyboard* self)
 
 	xkb_context_unref(self->context);
 	wl_keyboard_destroy(self->wl_keyboard);
+	pressed_keys_destroy(&self->pressed_keys);
 	inhibitor_destroy(inhibitor);
 	free(self);
 }
@@ -128,6 +160,20 @@ static void keyboard_keymap(void* data, struct wl_keyboard* wl_keyboard,
 	assert(keyboard->state);
 }
 
+static void handle_key(struct keyboard_collection* self, struct keyboard* keyboard,
+		uint32_t key, enum xkb_key_direction dir)
+{
+	xkb_state_update_key(keyboard->state, key, dir);
+
+	if (dir == XKB_KEY_DOWN) {
+		pressed_keys_add_key(&keyboard->pressed_keys, key);
+	} else {
+		pressed_keys_remove_key(&keyboard->pressed_keys, key);
+	}
+
+	self->on_event(self, keyboard, key, dir == XKB_KEY_DOWN);
+}
+
 static void keyboard_enter(void* data, struct wl_keyboard* wl_keyboard,
 		uint32_t serial, struct wl_surface* surface,
 		struct wl_array* keys)
@@ -138,6 +184,11 @@ static void keyboard_enter(void* data, struct wl_keyboard* wl_keyboard,
 	keyboard->waiting_for_modifiers = true;
 
 	inhibitor_inhibit(inhibitor, keyboard->seat);
+
+	uint32_t* key;
+	wl_array_for_each(key, keys) {
+		handle_key(data, keyboard, *key + 8, XKB_KEY_DOWN);
+	}
 }
 
 static void keyboard_leave(void* data, struct wl_keyboard* wl_keyboard,
@@ -146,7 +197,14 @@ static void keyboard_leave(void* data, struct wl_keyboard* wl_keyboard,
 	struct keyboard_collection* collection = data;
 	struct keyboard* keyboard =
 		keyboard_collection_find_wl_keyboard(collection, wl_keyboard);
+
 	inhibitor_release(inhibitor, keyboard->seat);
+
+	struct pressed_key* pressed_key;
+	struct pressed_key* tmp;
+	wl_list_for_each_safe(pressed_key, tmp, &keyboard->pressed_keys, link) {
+		handle_key(collection, keyboard, pressed_key->key, XKB_KEY_UP);
+	}
 }
 
 static enum xkb_key_direction xbk_key_direction_from_wl_keyboard_key_state(
@@ -174,10 +232,7 @@ static void keyboard_key(void* data, struct wl_keyboard* wl_keyboard,
 
 	enum xkb_key_direction dir =
 		xbk_key_direction_from_wl_keyboard_key_state(state);
-	xkb_state_update_key(keyboard->state, key + 8, dir);
-
-	self->on_event(self, keyboard, key + 8,
-			state == WL_KEYBOARD_KEY_STATE_PRESSED);
+	handle_key(self, keyboard, key + 8, dir);
 }
 
 static void keyboard_toggle_key(struct keyboard* self, uint32_t code)
