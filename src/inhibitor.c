@@ -54,12 +54,6 @@ bool inhibitor_init(struct shortcuts_inhibitor* self, struct wl_surface* surface
 
 	self->surface = surface;
 
-	struct seat* seat;
-	struct seat* tmp;
-
-	wl_list_for_each_safe(seat, tmp, seats, link)
-		inhibitor_add_seat(self, seat);
-
 	return true;
 }
 
