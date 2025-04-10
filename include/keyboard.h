@@ -26,6 +26,11 @@ struct xkb_state;
 
 struct keyboard_collection;
 
+struct pressed_key {
+	uint32_t key;
+	struct wl_list link;
+};
+
 struct keyboard {
 	struct wl_keyboard* wl_keyboard;
 	struct wl_list link;
@@ -38,6 +43,8 @@ struct keyboard {
 
 	struct keyboard_collection* collection;
 	uint32_t led_state;
+
+	struct wl_list pressed_keys;
 
 	bool waiting_for_modifiers;
 };
