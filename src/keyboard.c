@@ -45,6 +45,36 @@ struct keyboard* keyboard_new(struct wl_keyboard* wl_keyboard,
 	return self;
 }
 
+uint32_t* keyboard_get_pressed_key(struct keyboard* keyboard, uint32_t key)
+{
+	for (int i = 0; i < PRESSED_KEYS_MAX; i += 1) {
+		if (key == keyboard->pressed_keys[i]) {
+			return &keyboard->pressed_keys[i];
+		};
+	}
+	return NULL;
+}
+
+void keyboard_add_pressed_key(struct keyboard* keyboard, uint32_t key)
+{
+	if (keyboard_get_pressed_key(keyboard, key))
+		return;
+	uint32_t* pressed_key = keyboard_get_pressed_key(keyboard, 0);
+	if (!pressed_key) {
+		fprintf(stderr, "Oops, pressed too many keys.\n");
+		return;
+	}
+	*pressed_key = key;
+}
+
+void keyboard_remove_pressed_key(struct keyboard* keyboard, uint32_t key)
+{
+	uint32_t* pressed_key = keyboard_get_pressed_key(keyboard, key);
+	if (!pressed_key)
+		return;
+	*pressed_key = 0;
+}
+
 void keyboard_destroy(struct keyboard* self)
 {
 	if (self->state)
@@ -124,6 +154,20 @@ static void keyboard_keymap(void* data, struct wl_keyboard* wl_keyboard,
 	assert(keyboard->state);
 }
 
+static void handle_key(struct keyboard_collection* self, struct keyboard* keyboard,
+		uint32_t key, enum xkb_key_direction dir)
+{
+	xkb_state_update_key(keyboard->state, key, dir);
+
+	if (dir == XKB_KEY_DOWN) {
+		keyboard_add_pressed_key(keyboard, key);
+	} else {
+		keyboard_remove_pressed_key(keyboard, key);
+	}
+
+	self->on_event(self, keyboard, key, dir == XKB_KEY_DOWN);
+}
+
 static void keyboard_enter(void* data, struct wl_keyboard* wl_keyboard,
 		uint32_t serial, struct wl_surface* surface,
 		struct wl_array* keys)
@@ -132,11 +176,25 @@ static void keyboard_enter(void* data, struct wl_keyboard* wl_keyboard,
 	struct keyboard* keyboard =
 		keyboard_collection_find_wl_keyboard(collection, wl_keyboard);
 	keyboard->waiting_for_modifiers = true;
+
+	uint32_t* key;
+	wl_array_for_each(key, keys) {
+		handle_key(data, keyboard, *key + 8, XKB_KEY_DOWN);
+	}
 }
 
 static void keyboard_leave(void* data, struct wl_keyboard* wl_keyboard,
 		uint32_t serial, struct wl_surface* surface)
 {
+	struct keyboard_collection* collection = data;
+	struct keyboard* keyboard =
+		keyboard_collection_find_wl_keyboard(collection, wl_keyboard);
+
+	for (int i = 0; i < PRESSED_KEYS_MAX; i += 1) {
+		if (!keyboard->pressed_keys[i])
+			continue;
+		handle_key(collection, keyboard, keyboard->pressed_keys[i], XKB_KEY_UP);
+	};
 }
 
 static enum xkb_key_direction xbk_key_direction_from_wl_keyboard_key_state(
@@ -164,10 +222,7 @@ static void keyboard_key(void* data, struct wl_keyboard* wl_keyboard,
 
 	enum xkb_key_direction dir =
 		xbk_key_direction_from_wl_keyboard_key_state(state);
-	xkb_state_update_key(keyboard->state, key + 8, dir);
-
-	self->on_event(self, keyboard, key + 8,
-			state == WL_KEYBOARD_KEY_STATE_PRESSED);
+	handle_key(self, keyboard, key + 8, dir);
 }
 
 static void keyboard_toggle_key(struct keyboard* self, uint32_t code)
