@@ -18,18 +18,17 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <assert.h>
+#include <stdbool.h>
 #include <wayland-client.h>
 #include <wayland-cursor.h>
 #include <linux/input-event-codes.h>
 
-#include "inhibitor.h"
 #include "pointer.h"
 
 #define STEP_SIZE 15.0
 
 extern struct wl_shm* wl_shm;
 extern struct wl_compositor* wl_compositor;
-extern struct shortcuts_inhibitor* inhibitor;
 
 static struct wl_cursor_theme* pointer_load_cursor_theme(void)
 {
@@ -73,7 +72,6 @@ void pointer_destroy(struct pointer* self)
 	if (self->cursor_theme)
 		wl_cursor_theme_destroy(self->cursor_theme);
 	wl_surface_destroy(self->cursor_surface);
-	inhibitor_destroy(inhibitor);
 	free(self);
 }
 
@@ -171,7 +169,6 @@ static void pointer_enter(void* data, struct wl_pointer* wl_pointer,
 	pointer->serial = serial;
 
 	pointer_update_cursor(pointer);
-	inhibitor_inhibit(inhibitor, pointer->seat);
 }
 
 static void pointer_leave(void* data, struct wl_pointer* wl_pointer,
@@ -187,7 +184,6 @@ static void pointer_leave(void* data, struct wl_pointer* wl_pointer,
 		return;
 
 	pointer->serial = serial;
-	inhibitor_release(inhibitor, pointer->seat);
 }
 
 static void pointer_motion(void* data, struct wl_pointer* wl_pointer,
