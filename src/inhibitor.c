@@ -6,6 +6,25 @@
 #include <wayland-client.h>
 #include <assert.h>
 
+void inhibitor_active(void *data,
+		struct zwp_keyboard_shortcuts_inhibitor_v1 *zwp_keyboard_shortcuts_inhibitor_v1)
+{
+	struct shortcuts_seat_inhibitor* seat_inhibitor = data;
+	seat_inhibitor->active = true;
+}
+
+void inhibitor_inactive(void *data,
+		struct zwp_keyboard_shortcuts_inhibitor_v1 *zwp_keyboard_shortcuts_inhibitor_v1)
+{
+	struct shortcuts_seat_inhibitor* seat_inhibitor = data;
+	seat_inhibitor->active = false;
+}
+
+static struct zwp_keyboard_shortcuts_inhibitor_v1_listener inhibitor_listener = {
+	.active = inhibitor_active,
+	.inactive = inhibitor_inactive,
+};
+
 struct shortcuts_inhibitor* inhibitor_new(struct zwp_keyboard_shortcuts_inhibit_manager_v1* manager)
 {
 	struct shortcuts_inhibitor* self = calloc(1, sizeof(*self));
@@ -109,6 +128,7 @@ void inhibitor_inhibit(struct shortcuts_inhibitor* self, struct seat* seat)
 
 	seat_inhibitor->inhibitor = zwp_keyboard_shortcuts_inhibit_manager_v1_inhibit_shortcuts(
 			self->manager, self->surface, seat_inhibitor->seat->wl_seat);
+	zwp_keyboard_shortcuts_inhibitor_v1_add_listener(seat_inhibitor->inhibitor, &inhibitor_listener, seat_inhibitor);
 }
 
 void inhibitor_release(struct shortcuts_inhibitor* self, struct seat* seat)
@@ -120,6 +140,9 @@ void inhibitor_release(struct shortcuts_inhibitor* self, struct seat* seat)
 
 	struct shortcuts_seat_inhibitor* seat_inhibitor = seat_inhibitor_find_by_seat(&self->seat_inhibitors, seat);
 	assert(seat_inhibitor);
+
+	if (!seat_inhibitor->active)
+		return;
 
 	zwp_keyboard_shortcuts_inhibitor_v1_destroy(seat_inhibitor->inhibitor);
 	seat_inhibitor->inhibitor = NULL;
