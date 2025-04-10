@@ -17,6 +17,7 @@ struct shortcuts_seat_inhibitor {
 	struct wl_list link;
 
 	struct seat* seat;
+	bool active;
 
 	struct zwp_keyboard_shortcuts_inhibitor_v1* inhibitor;
 };
