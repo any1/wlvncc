@@ -30,21 +30,6 @@ extern struct wl_shm* wl_shm;
 extern struct gbm_device* gbm_device;
 extern struct zwp_linux_dmabuf_v1* zwp_linux_dmabuf_v1;
 
-static void buffer_release(void* data, struct wl_buffer* wl_buffer)
-{
-	(void)wl_buffer;
-	struct buffer* self = data;
-	self->is_attached = false;
-
-	if (self->please_clean_up) {
-		buffer_destroy(self);
-	}
-}
-
-static const struct wl_buffer_listener buffer_listener = {
-	.release = buffer_release,
-};
-
 struct buffer* buffer_create_shm(int width, int height, int stride,
 		uint32_t format)
 {
@@ -83,8 +68,6 @@ struct buffer* buffer_create_shm(int width, int height, int stride,
 		goto shm_failure;
 
 	close(fd);
-
-	wl_buffer_add_listener(self->wl_buffer, &buffer_listener, self);
 
 	return self;
 
@@ -140,8 +123,6 @@ struct buffer* buffer_create_dmabuf(int width, int height, uint32_t format)
 	if (!self->wl_buffer)
 		goto buffer_failure;
 
-	wl_buffer_add_listener(self->wl_buffer, &buffer_listener, self);
-
 	return self;
 
 buffer_failure:
@@ -158,9 +139,6 @@ void buffer_destroy(struct buffer* self)
 {
 	if (!self)
 		return;
-
-	if (self->is_attached)
-		self->please_clean_up = true;
 
 	pixman_region_fini(&self->damage);
 	wl_buffer_destroy(self->wl_buffer);
