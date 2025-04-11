@@ -84,8 +84,6 @@ struct window {
 
 	struct vnc_client* vnc;
 	void* vnc_fb;
-
-	bool is_frame_committed;
 };
 
 struct format_table_entry {
@@ -94,7 +92,6 @@ struct format_table_entry {
 	uint64_t modifier;
 } __attribute__((packed));
 
-static void register_frame_callback(void);
 
 static struct wl_display* wl_display;
 static struct wl_registry* wl_registry;
@@ -387,7 +384,6 @@ static int init_signal_handler(void)
 static void window_attach(struct window* w)
 {
 	wl_surface_attach(w->wl_bg_surface, w->wl_bg_buffer, 0, 0);
-	w->back_buffer->is_attached = true;
 	wl_surface_attach(w->wl_surface, w->back_buffer->wl_buffer, 0, 0);
 }
 
@@ -854,59 +850,26 @@ static void window_damage_region(struct window* w,
 	}
 }
 
-static void render_from_vnc(void)
+void on_vnc_client_update_fb(struct vnc_client* client)
 {
+	get_frame_damage(window->vnc, &window->current_damage);
 	if (!pixman_region_not_empty(&window->current_damage) &&
 			window->vnc->n_av_frames == 0)
 		return;
 
-	if (window->is_frame_committed)
-		return;
-
-	if (window->back_buffer->is_attached)
-		fprintf(stderr, "Oops, back-buffer is still attached.\n");
-
-	window_attach(window);
-
 	apply_buffer_damage(&window->current_damage);
-	window_damage_region(window, &window->current_damage);
 
 	window_transfer_pixels(window);
 
-	window->is_frame_committed = true;
-	register_frame_callback();
-
+	window_attach(window);
+	window_damage_region(window, &window->current_damage);
 	window_commit(window);
 	window_swap(window);
 
 	pixman_region_clear(&window->current_damage);
+
 	vnc_client_clear_av_frames(window->vnc);
-}
-
-void on_vnc_client_update_fb(struct vnc_client* client)
-{
-	get_frame_damage(window->vnc, &window->current_damage);
-	render_from_vnc();
-}
-
-static void handle_frame_callback(void* data, struct wl_callback* callback,
-		uint32_t time)
-{
-	wl_callback_destroy(callback);
-	window->is_frame_committed = false;
-
-	if (!window->vnc->is_updating)
-		render_from_vnc();
-}
-
-static const struct wl_callback_listener frame_listener = {
-	.done = handle_frame_callback
-};
-
-static void register_frame_callback(void)
-{
-	struct wl_callback* callback = wl_surface_frame(window->wl_surface);
-	wl_callback_add_listener(callback, &frame_listener, NULL);
+	window_commit(window);
 }
 
 void on_vnc_client_event(void* obj)
