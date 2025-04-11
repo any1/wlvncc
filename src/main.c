@@ -54,6 +54,7 @@
 
 #define CANARY_TICK_PERIOD INT64_C(100000) // us
 #define CANARY_LETHALITY_LEVEL INT64_C(8000) // us
+#define BUFFERING 2
 
 struct point {
 	double x, y;
@@ -75,7 +76,7 @@ struct window {
 	int width, height;
 	int32_t scale;
 
-	struct buffer* buffers[3];
+	struct buffer* buffers[BUFFERING];
 	struct buffer* back_buffer;
 	int buffer_index;
 
@@ -468,7 +469,7 @@ static void window_commit(struct window* w)
 
 static void window_swap(struct window* w)
 {
-	w->buffer_index = (w->buffer_index + 1) % 3;
+	w->buffer_index = (w->buffer_index + 1) % BUFFERING;
 	w->back_buffer = w->buffers[w->buffer_index];
 }
 
@@ -694,7 +695,7 @@ wl_bg_surface_failure:
 
 static void window_destroy(struct window* w)
 {
-	for (int i = 0; i < 3; ++i)
+	for (int i = 0; i < BUFFERING; ++i)
 		buffer_destroy(w->buffers[i]);
 	if (w->wl_bg_pixels)
 		munmap(w->wl_bg_pixels, 4);
@@ -802,7 +803,7 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 		window_resize(window, width, height);
 	}
 
-	for (int i = 0; i < 3; ++i) {
+	for (int i = 0; i < BUFFERING; ++i) {
 		window->buffers[i] = have_egl
 			? buffer_create_dmabuf(width, height, dmabuf_format)
 			: buffer_create_shm(width, height, 4 * width, shm_format);
@@ -832,7 +833,7 @@ static void get_frame_damage(struct vnc_client* client,
 
 static void apply_buffer_damage(struct pixman_region16* damage)
 {
-	for (int i = 0; i < 3; ++i)
+	for (int i = 0; i < BUFFERING; ++i)
 		pixman_region_union(&window->buffers[i]->damage,
 				&window->buffers[i]->damage, damage);
 }
