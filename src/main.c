@@ -79,12 +79,8 @@ struct window {
 	struct buffer* back_buffer;
 	int buffer_index;
 
-	struct pixman_region16 current_damage;
-
 	struct vnc_client* vnc;
 	void* vnc_fb;
-
-	bool is_frame_committed;
 };
 
 struct format_table_entry {
@@ -92,8 +88,6 @@ struct format_table_entry {
 	uint32_t padding;
 	uint64_t modifier;
 } __attribute__((packed));
-
-static void register_frame_callback(void);
 
 static struct wl_display* wl_display;
 static struct wl_registry* wl_registry;
@@ -439,6 +433,9 @@ static void window_transfer_pixels(struct window* w)
 	if (w->vnc->n_av_frames != 0) {
 		assert(have_egl);
 
+		if (pixman_region_not_empty(&w->vnc->damage))
+			fprintf(stderr, "Oops, got both av frames and buffer damage\n");
+
 		render_av_frames_egl(w->back_buffer, w->vnc->av_frames,
 				w->vnc->n_av_frames);
 		return;
@@ -451,7 +448,7 @@ static void window_transfer_pixels(struct window* w)
 		.stride = vnc_client_get_stride(w->vnc),
 		// TODO: Get the format from the vnc module
 		.format = w->back_buffer->format,
-		.damage = &w->current_damage,
+		.damage = &w->vnc->damage,
 	};
 
 	if (have_egl)
@@ -622,7 +619,6 @@ static struct window* window_create(const char* app_id, const char* title)
 		return NULL;
 
 	w->preferred_buffer_scale = 0;
-	pixman_region_init(&w->current_damage);
 
 	if (single_pixel_manager)
 		w->wl_bg_buffer = wp_single_pixel_buffer_manager_v1_create_u32_rgba_buffer(
@@ -708,7 +704,6 @@ static void window_destroy(struct window* w)
 	xdg_surface_destroy(w->xdg_bg_surface);
 	wp_viewport_destroy(w->wp_bg_viewport);
 	wl_surface_destroy(w->wl_bg_surface);
-	pixman_region_fini(&w->current_damage);
 	free(w);
 }
 
@@ -820,7 +815,7 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 static void get_frame_damage(struct vnc_client* client,
 		struct pixman_region16* damage)
 {
-	pixman_region_union(damage, damage, &client->damage);
+	pixman_region_copy(damage, &client->damage);
 
 	for (int i = 0; i < client->n_av_frames; ++i) {
 		const struct vnc_av_frame* frame = client->av_frames[i];
@@ -853,13 +848,10 @@ static void window_damage_region(struct window* w,
 	}
 }
 
-static void render_from_vnc(void)
+void on_vnc_client_update_fb(struct vnc_client* client)
 {
-	if (!pixman_region_not_empty(&window->current_damage) &&
-			window->vnc->n_av_frames == 0)
-		return;
-
-	if (window->is_frame_committed)
+	if (!pixman_region_not_empty(&client->damage) &&
+			client->n_av_frames == 0)
 		return;
 
 	if (window->back_buffer->is_attached)
@@ -867,45 +859,17 @@ static void render_from_vnc(void)
 
 	window_attach(window);
 
-	apply_buffer_damage(&window->current_damage);
-	window_damage_region(window, &window->current_damage);
+	struct pixman_region16 frame_damage = { 0 };
+	get_frame_damage(window->vnc, &frame_damage);
+
+	apply_buffer_damage(&frame_damage);
+	window_damage_region(window, &frame_damage);
+	pixman_region_fini(&frame_damage);
 
 	window_transfer_pixels(window);
 
-	window->is_frame_committed = true;
-	register_frame_callback();
-
 	window_commit(window);
 	window_swap(window);
-
-	pixman_region_clear(&window->current_damage);
-	vnc_client_clear_av_frames(window->vnc);
-}
-
-void on_vnc_client_update_fb(struct vnc_client* client)
-{
-	get_frame_damage(window->vnc, &window->current_damage);
-	render_from_vnc();
-}
-
-static void handle_frame_callback(void* data, struct wl_callback* callback,
-		uint32_t time)
-{
-	wl_callback_destroy(callback);
-	window->is_frame_committed = false;
-
-	if (!window->vnc->is_updating)
-		render_from_vnc();
-}
-
-static const struct wl_callback_listener frame_listener = {
-	.done = handle_frame_callback
-};
-
-static void register_frame_callback(void)
-{
-	struct wl_callback* callback = wl_surface_frame(window->wl_surface);
-	wl_callback_add_listener(callback, &frame_listener, NULL);
 }
 
 void on_vnc_client_event(void* obj)
