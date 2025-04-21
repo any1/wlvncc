@@ -38,7 +38,6 @@ struct buffer {
 	uint32_t format;
 	struct wl_buffer* wl_buffer;
 	bool is_attached;
-	bool please_clean_up;
 	struct pixman_region16 damage;
 
 	// wl_shm:
