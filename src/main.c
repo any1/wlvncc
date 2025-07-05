@@ -36,6 +36,7 @@
 #include "inhibitor.h"
 #include "viewporter-v1.h"
 #include "single-pixel-buffer-v1.h"
+#include "xdg-decoration-unstable-v1.h"
 #include "pixman.h"
 #include "xdg-shell.h"
 #include "shm.h"
@@ -65,6 +66,7 @@ struct window {
 	struct wl_surface* wl_bg_surface;
 	struct xdg_surface* xdg_bg_surface;
 	struct xdg_toplevel* xdg_bg_toplevel;
+	struct zxdg_toplevel_decoration_v1* decoration;
 	struct wp_viewport* wp_bg_viewport;
 
 	struct wl_surface* wl_surface;
@@ -110,6 +112,8 @@ struct shortcuts_inhibitor* inhibitor;
 struct wl_subcompositor* subcompositor;
 struct wp_viewporter* viewporter;
 struct wp_single_pixel_buffer_manager_v1* single_pixel_manager;
+static struct zxdg_decoration_manager_v1* decoration_manager;
+static bool decorations = true;
 
 static bool have_egl = false;
 static bool shortcut_inhibit = false;
@@ -175,6 +179,8 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 		viewporter = wl_registry_bind(registry, id, &wp_viewporter_interface, 1);
 	} else if (strcmp(interface, wp_single_pixel_buffer_manager_v1_interface.name) == 0) {
 		single_pixel_manager = wl_registry_bind(registry, id, &wp_single_pixel_buffer_manager_v1_interface, 1);
+	} else if (strcmp(interface, zxdg_decoration_manager_v1_interface.name) == 0 && decorations) {
+		decoration_manager = wl_registry_bind(registry, id, &zxdg_decoration_manager_v1_interface, 1);
 	} else if (strcmp(interface, "wl_seat") == 0) {
 		struct wl_seat* wl_seat;
 		wl_seat = wl_registry_bind(registry, id, &wl_seat_interface, 5);
@@ -653,6 +659,13 @@ static struct window* window_create(const char* app_id, const char* title)
 	xdg_toplevel_set_app_id(w->xdg_bg_toplevel, app_id);
 	xdg_toplevel_set_title(w->xdg_bg_toplevel, title);
 
+	if (decoration_manager) {
+		w->decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(
+			decoration_manager, w->xdg_bg_toplevel);
+		zxdg_toplevel_decoration_v1_set_mode(w->decoration,
+			ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+	}
+
 	w->wl_surface = wl_compositor_create_surface(wl_compositor);
 	if (!w->wl_surface)
 		goto wl_surface_failure;
@@ -700,6 +713,8 @@ static void window_destroy(struct window* w)
 	wp_viewport_destroy(w->wp_viewport);
 	wl_subsurface_destroy(w->wl_subsurface);
 	wl_surface_destroy(w->wl_surface);
+	if (w->decoration)
+		zxdg_toplevel_decoration_v1_destroy(w->decoration);
 	xdg_toplevel_destroy(w->xdg_bg_toplevel);
 	xdg_surface_destroy(w->xdg_bg_surface);
 	wp_viewport_destroy(w->wp_bg_viewport);
@@ -1046,6 +1061,7 @@ Usage: wlvncc <address> [port]\n\
                              hextile, zlib, corre, rre, raw, open-h264.\n\
     -h,--help                Get help.\n\
     -n,--hide-cursor         Hide the client-side cursor.\n\
+    -d,--no-decorations      Do not request window decorations from the compositor\n\
     -i,--shortcut-inhibit    Enable the shortcut inhibitor while being focused.\n\
     -q,--quality             Quality level (0 - 9).\n\
     -t,--tls-cert            Use given TLS cert for authenticating server.\n\
@@ -1063,7 +1079,7 @@ int main(int argc, char* argv[])
 	const char* encodings = NULL;
 	int quality = -1;
 	int compression = -1;
-	static const char* shortopts = "a:A:q:c:e:hnist:";
+	static const char* shortopts = "a:A:q:c:e:hndist:";
 	bool use_sw_renderer = false;
 
 	static const struct option longopts[] = {
@@ -1072,6 +1088,7 @@ int main(int argc, char* argv[])
 		{ "compression", required_argument, NULL, 'c' },
 		{ "encodings", required_argument, NULL, 'e' },
 		{ "hide-cursor", no_argument, NULL, 'n' },
+		{ "no-decorations", no_argument, NULL, 'd' },
 		{ "shortcut-inhibit", no_argument, NULL, 'i' },
 		{ "help", no_argument, NULL, 'h' },
 		{ "quality", required_argument, NULL, 'q' },
@@ -1103,6 +1120,9 @@ int main(int argc, char* argv[])
 			break;
 		case 'n':
 			cursor_type = POINTER_CURSOR_NONE;
+			break;
+		case 'd':
+			decorations = false;
 			break;
 		case 'i':
 			shortcut_inhibit = true;
@@ -1259,6 +1279,9 @@ vnc_failure:
 	wl_compositor_destroy(wl_compositor);
 	wl_shm_destroy(wl_shm);
 	xdg_wm_base_destroy(xdg_wm_base);
+	if (decoration_manager)
+		zxdg_decoration_manager_v1_destroy(decoration_manager);
+
 	egl_finish();
 	if (zwp_linux_dmabuf_v1)
 		zwp_linux_dmabuf_v1_destroy(zwp_linux_dmabuf_v1);
