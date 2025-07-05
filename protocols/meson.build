@@ -19,6 +19,7 @@ client_protocols = [
 	'keyboard-shortcuts-inhibit-unstable-v1.xml',
 	'viewporter-v1.xml',
 	'single-pixel-buffer-v1.xml',
+	'xdg-decoration-unstable-v1.xml',
 ]
 
 client_protos_src = []
