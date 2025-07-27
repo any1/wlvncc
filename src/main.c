@@ -335,7 +335,7 @@ static const struct zwp_linux_dmabuf_feedback_v1_listener dmabuf_feedback_listen
 	.tranche_flags = noop,
 };
 
-void on_wayland_event(void* obj)
+void on_wayland_event(struct aml_handler* handler)
 {
 	int rc = wl_display_prepare_read(wl_display);
 	assert(rc == 0);
@@ -366,7 +366,7 @@ static int init_wayland_event_handler(void)
 	return rc;
 }
 
-static void on_signal(void* obj)
+static void on_signal(struct aml_signal* signal)
 {
 	do_run = false;
 }
@@ -887,9 +887,9 @@ void on_vnc_client_update_fb(struct vnc_client* client)
 	window_swap(window);
 }
 
-void on_vnc_client_event(void* obj)
+void on_vnc_client_event(struct aml_handler* handler)
 {
-	struct vnc_client* client = aml_get_userdata(obj);
+	struct vnc_client* client = aml_get_userdata(handler);
 	if (vnc_client_process(client) < 0)
 		do_run = false;
 }
@@ -1011,9 +1011,9 @@ failure:
 	return -1;
 }
 
-static void on_canary_tick(void* obj)
+static void on_canary_tick(struct aml_ticker* ticker)
 {
-	(void)obj;
+	(void)ticker;
 
 	uint64_t t = gettime_us();
 	int64_t dt = t - last_canary_tick;
@@ -1149,11 +1149,6 @@ int main(int argc, char* argv[])
 	int port = 5900;
 	if (n_args >= 2)
 		port = atoi(argv[optind + 1]);
-
-	if (aml_unstable_abi_version != AML_UNSTABLE_API) {
-		fprintf(stderr, "libaml is incompatible with current build of wlvncc!\n");
-		abort();
-	}
 
 	struct aml* aml = aml_new();
 	if (!aml)
