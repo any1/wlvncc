@@ -50,12 +50,13 @@ libpng = dependency('libpng', required: false)
 lzo = dependency('lzo2', required: false)
 libz = dependency('zlib', required: false)
 
-aml_project = subproject('aml', required: false,
+aml_version = ['<1.0.0']
+aml_project = subproject('aml', required: false, version: aml_version,
 		default_options: ['default_library=static'])
 if aml_project.found()
 	aml = aml_project.get_variable('aml_dep')
 else
-	aml = dependency('aml')
+	aml = dependency('aml', version: aml_version)
 endif
 
 inc = include_directories('include', 'src/encodings')
