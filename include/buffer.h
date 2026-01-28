@@ -36,6 +36,7 @@ struct buffer {
 	int width, height;
 	size_t size;
 	uint32_t format;
+	uint64_t modifier;
 	struct wl_buffer* wl_buffer;
 	bool is_attached;
 	bool please_clean_up;
@@ -50,5 +51,5 @@ struct buffer {
 };
 
 struct buffer* buffer_create_shm(int width, int height, int stride, uint32_t format);
-struct buffer* buffer_create_dmabuf(int width, int height, uint32_t format);
+struct buffer* buffer_create_dmabuf(int width, int height, uint32_t format, uint64_t modifier);
 void buffer_destroy(struct buffer* self);

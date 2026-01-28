@@ -24,6 +24,7 @@
 #include <wayland-client.h>
 #include <gbm.h>
 #include <assert.h>
+#include <drm_fourcc.h>
 
 /* Origin: main.c */
 extern struct wl_shm* wl_shm;
@@ -98,7 +99,7 @@ failure:
 	return NULL;
 }
 
-struct buffer* buffer_create_dmabuf(int width, int height, uint32_t format)
+struct buffer* buffer_create_dmabuf(int width, int height, uint32_t format, uint64_t modifier)
 {
 	assert(gbm_device && zwp_linux_dmabuf_v1);
 
@@ -110,11 +111,18 @@ struct buffer* buffer_create_dmabuf(int width, int height, uint32_t format)
 	self->width = width;
 	self->height = height;
 	self->format = format;
+	self->modifier = modifier;
 
 	pixman_region_init_rect(&self->damage, 0, 0, width, height);
 
-	self->bo = gbm_bo_create(gbm_device, width, height, format,
-			GBM_BO_USE_RENDERING);
+	if (modifier == DRM_FORMAT_MOD_INVALID) {
+		self->bo = gbm_bo_create(gbm_device, width, height, format,
+				GBM_BO_USE_RENDERING);
+	} else {
+		int count = gbm_device_get_format_modifier_plane_count(gbm_device, format, self->modifier);
+		self->bo = gbm_bo_create_with_modifiers2(gbm_device, width, height, format, &self->modifier, count,
+				GBM_BO_USE_RENDERING);
+	};
 	if (!self->bo)
 		goto bo_failure;
 

@@ -120,6 +120,7 @@ static bool shortcut_inhibit = false;
 
 static uint32_t shm_format = DRM_FORMAT_INVALID;
 static uint32_t dmabuf_format = DRM_FORMAT_INVALID;
+static uint64_t dmabuf_modifier = DRM_FORMAT_MOD_INVALID;
 
 static bool do_run = true;
 
@@ -314,8 +315,12 @@ static void handle_tranche_formats(void* data,
 		switch (format_table[*index].format) {
 		case DRM_FORMAT_XRGB8888:
 		case DRM_FORMAT_XBGR8888:
-			if (format_table[*index].modifier == DRM_FORMAT_MOD_INVALID)
+			switch (format_table[*index].modifier) {
+			case DRM_FORMAT_MOD_INVALID:
+			case DRM_FORMAT_MOD_LINEAR:
 				dmabuf_format = format_table[*index].format;
+				dmabuf_modifier = format_table[*index].modifier;
+			}
 		}
 	}
 }
@@ -814,7 +819,7 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 
 	for (int i = 0; i < 3; ++i) {
 		window->buffers[i] = have_egl
-			? buffer_create_dmabuf(width, height, dmabuf_format)
+			? buffer_create_dmabuf(width, height, dmabuf_format, dmabuf_modifier)
 			: buffer_create_shm(width, height, 4 * width, shm_format);
 	}
 	window->back_buffer = window->buffers[0];
