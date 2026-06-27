@@ -24,6 +24,7 @@
 #include <linux/input-event-codes.h>
 
 #include "keyboard.h"
+#include "seat.h"
 
 enum keyboard_led_state {
 	KEYBOARD_LED_SCROLL_LOCK = 1 << 0,
@@ -175,6 +176,7 @@ static void keyboard_enter(void* data, struct wl_keyboard* wl_keyboard,
 	struct keyboard_collection* collection = data;
 	struct keyboard* keyboard =
 		keyboard_collection_find_wl_keyboard(collection, wl_keyboard);
+	keyboard->seat->last_serial = serial;
 	keyboard->waiting_for_modifiers = true;
 
 	uint32_t* key;
@@ -219,6 +221,7 @@ static void keyboard_key(void* data, struct wl_keyboard* wl_keyboard,
 	struct keyboard* keyboard =
 		keyboard_collection_find_wl_keyboard(self, wl_keyboard);
 	assert(keyboard);
+	keyboard->seat->last_serial = serial;
 
 	enum xkb_key_direction dir =
 		xbk_key_direction_from_wl_keyboard_key_state(state);
@@ -263,6 +266,7 @@ static void keyboard_modifiers(void* data, struct wl_keyboard* wl_keyboard,
 	struct keyboard* keyboard =
 		keyboard_collection_find_wl_keyboard(self, wl_keyboard);
 	assert(keyboard);
+	keyboard->seat->last_serial = serial;
 
 	xkb_state_update_mask(keyboard->state, depressed, latched, locked, 0, 0,
 			group);

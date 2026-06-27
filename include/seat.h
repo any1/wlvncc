@@ -25,6 +25,8 @@ struct seat {
 
 	uint32_t id;
 	uint32_t capabilities;
+	uint32_t last_serial;
+	struct wl_data_device* data_device;
 	char name[256];
 
 	void (*on_capability_change)(struct seat*);
