@@ -1394,6 +1394,12 @@ rfbBool SetFormatAndEncodings(rfbClient* client)
 		encs[se->nEncodings++] =
 		        rfbClientSwap32IfLE(rfbEncodingDesktopSize);
 
+	/* Extended Desktop Size: lets the server advertise its screen layout and
+	 * accept client-initiated SetDesktopSize requests. */
+	if (se->nEncodings < MAX_ENCODINGS)
+		encs[se->nEncodings++] =
+		        rfbClientSwap32IfLE(rfbEncodingExtDesktopSize);
+
 	/* Last Rect */
 	if (se->nEncodings < MAX_ENCODINGS && requestLastRectEncoding)
 		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingLastRect);
@@ -1676,10 +1682,15 @@ rfbBool SendExtDesktopSize(rfbClient* client, uint16_t width, uint16_t height)
 	if (client->screen.width != rfbClientSwap16IfLE(width) ||
 	    client->screen.height != rfbClientSwap16IfLE(height)) {
 		rfbClientLog("Sending dimensions %dx%d\n", width, height);
+		memset(&sdm, 0, sizeof(sdm));
 		sdm.type = rfbSetDesktopSize;
 		sdm.width = rfbClientSwap16IfLE(width);
 		sdm.height = rfbClientSwap16IfLE(height);
 		sdm.numberOfScreens = 1;
+		/* Echo the server-advertised screen (id/x/y/flags) and only change the
+		 * dimensions. Leaving id/x/y/flags uninitialised makes servers reject
+		 * the request with an "unknown display id" error. */
+		screen = client->screen;
 		screen.width = rfbClientSwap16IfLE(width);
 		screen.height = rfbClientSwap16IfLE(height);
 
@@ -1839,7 +1850,6 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			/* read encoding data */
 			int screens;
 			int loop;
-			rfbBool invalidScreen = FALSE;
 			rfbExtDesktopScreen screen;
 			rfbExtDesktopSizeMsg eds;
 			if (!ReadFromRFBServer(client, ((char*)&eds),
@@ -1853,15 +1863,15 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 				                       sz_rfbExtDesktopScreen)) {
 					goto failure;
 				}
-				if (screen.id != 0) {
-					client->screen = screen;
-				} else {
-					invalidScreen = TRUE;
-				}
+				/* Accept the advertised screen even when its id is 0:
+				 * a single-screen server (e.g. wayvnc) legitimately uses
+				 * id 0, and we need client->screen populated to be able
+				 * to send a SetDesktopSize request back. */
+				client->screen = screen;
 			}
 
-			if (!invalidScreen && (client->width != rect.r.w ||
-			                       client->height != rect.r.h)) {
+			if (client->width != rect.r.w ||
+			    client->height != rect.r.h) {
 				if (!ResizeClientBuffer(client, rect.r.w,
 				                        rect.r.h)) {
 					goto failure;
