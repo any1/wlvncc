@@ -83,6 +83,12 @@ struct window {
 
 	struct vnc_client* vnc;
 	void* vnc_fb;
+
+	// Desired remote desktop size (physical px) matching this window. Requested
+	// on resize; resize_pending stays set until the request reaches the server
+	// (its screen layout may not be known yet on the first configure).
+	bool resize_pending;
+	uint16_t desired_width, desired_height;
 };
 
 struct format_table_entry {
@@ -517,6 +523,14 @@ static void window_resize(struct window* w, int width, int height)
 	w->height = height;
 	w->scale = scale;
 
+	// Adaptive resolution: ask the server to make its desktop match our buffer
+	// (physical px) so it fills the window at native resolution. If the server's
+	// screen layout is not known yet, on_vnc_client_update_fb retries.
+	w->desired_width = width * scale;
+	w->desired_height = height * scale;
+	w->resize_pending = vnc_client_request_resize(w->vnc,
+			w->desired_width, w->desired_height) != 0;
+
 	double new_scale;
 	int new_width, new_height;
 	window_calculate_buffer(window, &new_scale, &new_width, &new_height);
@@ -870,6 +884,14 @@ static void window_damage_region(struct window* w,
 
 void on_vnc_client_update_fb(struct vnc_client* client)
 {
+	// Retry a resize request that could not be sent when the window was first
+	// configured (the server's screen layout is known once we have a frame).
+	if (window->resize_pending &&
+			vnc_client_request_resize(window->vnc,
+				window->desired_width,
+				window->desired_height) == 0)
+		window->resize_pending = false;
+
 	if (!pixman_region_not_empty(&client->damage) &&
 			client->n_av_frames == 0)
 		return;

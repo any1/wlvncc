@@ -64,6 +64,8 @@ int vnc_client_set_pixel_format(struct vnc_client* self, uint32_t format);
 int vnc_client_get_fd(const struct vnc_client* self);
 int vnc_client_get_width(const struct vnc_client* self);
 int vnc_client_get_height(const struct vnc_client* self);
+int vnc_client_request_resize(struct vnc_client* self, uint16_t width,
+		uint16_t height);
 int vnc_client_get_stride(const struct vnc_client* self);
 void* vnc_client_get_fb(const struct vnc_client* self);
 void vnc_client_set_fb(struct vnc_client* self, void* fb);
