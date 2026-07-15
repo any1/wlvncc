@@ -71,6 +71,11 @@ static EGLContext egl_context = EGL_NO_CONTEXT;
 static GLuint shader_program = 0;
 static GLuint shader_program_ext = 0;
 static GLuint texture = 0;
+// Dimensions the persistent texture was last specified at. When the source
+// framebuffer is resized, the texture must be re-uploaded in full at the new
+// size rather than patched with glTexSubImage2D; otherwise the partial uploads
+// and the draw target a stale-sized texture and render as garbage.
+static int texture_width = 0, texture_height = 0;
 
 static const char *vertex_shader_src =
 "attribute vec2 pos;\n"
@@ -216,8 +221,11 @@ failure:
 
 void egl_finish(void)
 {
-	if (texture)
+	if (texture) {
 		glDeleteTextures(1, &texture);
+		texture = 0;
+		texture_width = texture_height = 0;
+	}
 	if (shader_program_ext)
 		glDeleteProgram(shader_program_ext);
 	if (shader_program)
@@ -476,7 +484,8 @@ void render_image_egl(struct buffer* dst, const struct image* src)
 
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo.fbo);
 
-	bool is_new_texture = !texture;
+	bool is_new_texture = !texture || texture_width != src->width ||
+			texture_height != src->height;
 
 	if (!texture)
 		glGenTextures(1, &texture);
@@ -494,6 +503,8 @@ void render_image_egl(struct buffer* dst, const struct image* src)
 		GLenum fmt = gl_format_from_drm(src->format);
 		glTexImage2D(GL_TEXTURE_2D, 0, fmt, src->width, src->height, 0,
 				fmt, GL_UNSIGNED_BYTE, src->pixels);
+		texture_width = src->width;
+		texture_height = src->height;
 	} else {
 		import_image_with_damage(src,
 				(struct pixman_region16*)src->damage);
