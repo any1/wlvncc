@@ -368,6 +368,27 @@ int vnc_client_get_height(const struct vnc_client* self)
 	return self->client->height;
 }
 
+int vnc_client_request_resize(struct vnc_client* self, uint16_t width,
+		uint16_t height)
+{
+	// Ask the server to resize its desktop to the given size, via the
+	// ExtendedDesktopSize extension. Returns 0 if the request was sent (or the
+	// server is already at that size), and -1 if it could not be sent yet -
+	// e.g. the connection or the server's screen layout is not ready - so the
+	// caller can retry on a later frame.
+	if (!self->client || width == 0 || height == 0)
+		return -1;
+	if (self->client->width == 0)
+		return -1;
+	// SendExtDesktopSize silently does nothing (but returns TRUE) until the
+	// server has advertised its screen via an ExtendedDesktopSize rect.
+	if (self->client->screen.width == 0)
+		return -1;
+	if (self->client->width == width && self->client->height == height)
+		return 0;
+	return SendExtDesktopSize(self->client, width, height) ? 0 : -1;
+}
+
 int vnc_client_get_stride(const struct vnc_client* self)
 {
 	// TODO: What happens if bitsPerPixel == 24?
