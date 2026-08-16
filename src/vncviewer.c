@@ -151,7 +151,7 @@ static int RunAuthCommand(char** username, char** password)
 		*password = strdup(line);
 	}
 
-	if ((*username && !*username) || !*password) {
+	if ((username && !*username) || !*password) {
 		rfbClientLog("Did not get credentials from auth script\n");
 		return -1;
 	}
