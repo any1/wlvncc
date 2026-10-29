@@ -205,6 +205,10 @@ static enum xkb_key_direction xbk_key_direction_from_wl_keyboard_key_state(
 		return XKB_KEY_DOWN;
 	case WL_KEYBOARD_KEY_STATE_RELEASED:
 		return XKB_KEY_UP;
+#ifdef WL_KEYBOARD_KEY_STATE_REPEATED_SINCE_VERSION
+	case WL_KEYBOARD_KEY_STATE_REPEATED:
+		break; /* handled by the caller */
+#endif
 	}
 
 	abort();
@@ -219,6 +223,15 @@ static void keyboard_key(void* data, struct wl_keyboard* wl_keyboard,
 	struct keyboard* keyboard =
 		keyboard_collection_find_wl_keyboard(self, wl_keyboard);
 	assert(keyboard);
+
+#ifdef WL_KEYBOARD_KEY_STATE_REPEATED_SINCE_VERSION
+	/* Repeats must not be fed into the xkb state; RFB expresses them as
+	 * additional key-down events. */
+	if (state == WL_KEYBOARD_KEY_STATE_REPEATED) {
+		self->on_event(self, keyboard, key + 8, true);
+		return;
+	}
+#endif
 
 	enum xkb_key_direction dir =
 		xbk_key_direction_from_wl_keyboard_key_state(state);
