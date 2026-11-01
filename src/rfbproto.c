@@ -1394,6 +1394,11 @@ rfbBool SetFormatAndEncodings(rfbClient* client)
 		encs[se->nEncodings++] =
 		        rfbClientSwap32IfLE(rfbEncodingDesktopSize);
 
+	/* Extended Desktop Size (multi-screen resize negotiation) */
+	if (se->nEncodings < MAX_ENCODINGS)
+		encs[se->nEncodings++] =
+		        rfbClientSwap32IfLE(rfbEncodingExtDesktopSize);
+
 	/* Last Rect */
 	if (se->nEncodings < MAX_ENCODINGS && requestLastRectEncoding)
 		encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingLastRect);
@@ -1666,8 +1671,11 @@ rfbBool SendExtDesktopSize(rfbClient* client, uint16_t width, uint16_t height)
 	rfbSetDesktopSizeMsg sdm;
 	rfbExtDesktopScreen screen;
 
-	if (client->screen.width == 0 && client->screen.height == 0) {
-		rfbClientLog("Screen not yet received from server - not "
+	// Single-display servers number their only display 0, so screen id
+	// 0 is valid even if the server never announced a layout
+	// (ExtendedDesktopSize). Only require server init to be done.
+	if (client->width == 0 && client->height == 0) {
+		rfbClientLog("Server init not done - not "
 		             "sending dimensions %dx%d\n",
 		             width, height);
 		return TRUE;
@@ -1680,6 +1688,11 @@ rfbBool SendExtDesktopSize(rfbClient* client, uint16_t width, uint16_t height)
 		sdm.width = rfbClientSwap16IfLE(width);
 		sdm.height = rfbClientSwap16IfLE(height);
 		sdm.numberOfScreens = 1;
+		// Explicitly address screen id 0: single-display servers
+		// number their only display 0, and an uninitialized id is
+		// rejected as invalid layout. Also zero x/y/flags.
+		memset(&screen, 0, sizeof(screen));
+		screen.id = rfbClientSwap32IfLE(0);
 		screen.width = rfbClientSwap16IfLE(width);
 		screen.height = rfbClientSwap16IfLE(height);
 
@@ -1839,9 +1852,21 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 			/* read encoding data */
 			int screens;
 			int loop;
-			rfbBool invalidScreen = FALSE;
 			rfbExtDesktopScreen screen;
 			rfbExtDesktopSizeMsg eds;
+			// rect position carries the negotiation state:
+			// x = initiator (0: server, 1: this client, 2: other
+			// client), y = result (0: success, 1: prohibited,
+			// 2: out of resources, 3: invalid layout, 4: request
+			// forwarded). A reply to our own request that is not
+			// a success only echoes the requested size - the
+			// server sends a server-initiated success rect once
+			// the output really changed. Resizing the buffer on
+			// an unconfirmed reply desyncs it from the actual
+			// frame size.
+			int initiator = rect.r.x;
+			int result = rect.r.y;
+			rfbBool confirmed = initiator != 1 || result == 0;
 			if (!ReadFromRFBServer(client, ((char*)&eds),
 			                       sz_rfbExtDesktopSizeMsg)) {
 				goto failure;
@@ -1853,21 +1878,24 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 				                       sz_rfbExtDesktopScreen)) {
 					goto failure;
 				}
-				if (screen.id != 0) {
-					client->screen = screen;
-				} else {
-					invalidScreen = TRUE;
-				}
+				// Screen id 0 is the valid id of a
+				// single-display server (neatvnc numbers
+				// displays from 0), not an invalid screen.
+				client->screen = screen;
 			}
 
-			if (!invalidScreen && (client->width != rect.r.w ||
-			                       client->height != rect.r.h)) {
+			if (confirmed && (client->width != rect.r.w ||
+					client->height != rect.r.h)) {
 				if (!ResizeClientBuffer(client, rect.r.w,
 				                        rect.r.h)) {
 					goto failure;
 				}
 				rfbClientLog("Updated desktop size: %dx%d\n",
 				             rect.r.w, rect.r.h);
+			} else if (!confirmed) {
+				rfbClientLog("Server has not confirmed resize to %dx%d (result %d) - keeping %dx%d\n",
+				             rect.r.w, rect.r.h, result,
+				             client->width, client->height);
 			}
 			client->requestedResize = FALSE;
 
@@ -1970,11 +1998,24 @@ static rfbBool HandleFramebufferUpdate(rfbClient* client,
 		if (rect.encoding != rfbEncodingUltraZip) {
 			if ((rect.r.x + rect.r.w > client->width) ||
 			    (rect.r.y + rect.r.h > client->height)) {
-				rfbClientLog("Rect too large: %dx%d at "
-				             "(%d, %d)\n",
+				// The server can deliver frames in the new
+				// size before (or without) announcing it via
+				// a desktop-size rect. Grow the buffer to fit
+				// instead of exiting, mirroring what the
+				// desktop-size handlers do.
+				int need_w = rect.r.x + rect.r.w;
+				int need_h = rect.r.y + rect.r.h;
+				int grow_w = need_w > client->width ?
+					need_w : client->width;
+				int grow_h = need_h > client->height ?
+					need_h : client->height;
+				rfbClientLog("Rect exceeds framebuffer (%dx%d at %d,%d) - growing buffer to %dx%d\n",
 				             rect.r.w, rect.r.h, rect.r.x,
-				             rect.r.y);
-				goto failure;
+				             rect.r.y, grow_w, grow_h);
+				if (!ResizeClientBuffer(client, grow_w,
+							grow_h)) {
+					goto failure;
+				}
 			}
 
 			/* UltraVNC with scaling, will send rectangles
