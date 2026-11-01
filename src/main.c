@@ -76,6 +76,7 @@ struct window {
 	int preferred_buffer_scale;
 	int width, height;
 	int32_t scale;
+	int req_width, req_height;
 
 	struct buffer* buffers[3];
 	struct buffer* back_buffer;
@@ -504,6 +505,56 @@ static const struct xdg_surface_listener xdg_surface_listener = {
 	.configure = xdg_surface_configure,
 };
 
+static void window_request_remote_size(struct window* w, int width,
+		int height, int32_t scale)
+{
+	// TigerVNC parity: adapt the remote desktop to the window size.
+	// The server (e.g. WayVNC) forwards this via wlr-output-management
+	// to its compositor; whatever it rejects (unsupported mode) stays
+	// client-side scaled (letterbox).
+	if (!w->vnc || !w->vnc->client)
+		return;
+	long fb_w = (long)width * (long)scale;
+	long fb_h = (long)height * (long)scale;
+	if (fb_w <= 0 || fb_h <= 0 || fb_w > 8192 || fb_h > 8192)
+		return;
+	// Send only once per window size; the server may take a while to
+	// report its screen (ExtendedDesktopSize), so frame updates retry
+	// via on_vnc_client_update_fb until it goes out.
+	if (w->req_width == fb_w && w->req_height == fb_h)
+		return;
+	// The screen size arrives asynchronously (ExtendedDesktopSize, if
+	// the server sends one at all). Server init (framebuffer size known)
+	// is enough: single-display servers number their display 0.
+	if (vnc_client_get_width(w->vnc) == 0 ||
+			vnc_client_get_height(w->vnc) == 0)
+		return;
+	if (!SendExtDesktopSize(w->vnc->client, (uint16_t)fb_w,
+				(uint16_t)fb_h))
+		return;
+	w->req_width = fb_w;
+	w->req_height = fb_h;
+}
+
+static void window_apply_viewport(struct window* w)
+{
+	if (w->width == 0 || w->height == 0 || w->scale == 0)
+		return;
+
+	double new_scale;
+	int new_width, new_height;
+	window_calculate_buffer(w, &new_scale, &new_width, &new_height);
+
+	new_width /= w->scale;
+	new_height /= w->scale;
+
+	wp_viewport_set_destination(w->wp_bg_viewport, w->width, w->height);
+	wp_viewport_set_destination(w->wp_viewport, new_width, new_height);
+	wl_subsurface_set_position(w->wl_subsurface,
+		(w->width - new_width) / 2, (w->height - new_height) / 2);
+	window_commit(w);
+}
+
 static void window_resize(struct window* w, int width, int height)
 {
 	int32_t scale = window_get_scale(window);
@@ -517,18 +568,9 @@ static void window_resize(struct window* w, int width, int height)
 	w->height = height;
 	w->scale = scale;
 
-	double new_scale;
-	int new_width, new_height;
-	window_calculate_buffer(window, &new_scale, &new_width, &new_height);
+	window_apply_viewport(w);
 
-	new_width /= scale;
-	new_height /= scale;
-
-	wp_viewport_set_destination(w->wp_bg_viewport, width, height);
-	wp_viewport_set_destination(w->wp_viewport, new_width, new_height);
-	wl_subsurface_set_position(w->wl_subsurface,
-		(width - new_width) / 2 , (height - new_height) / 2);
-	window_commit(w);
+	window_request_remote_size(w, width, height, scale);
 }
 
 static void xdg_toplevel_configure(void* data, struct xdg_toplevel* toplevel,
@@ -814,6 +856,12 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 		window = window_create(app_id, vnc_client_get_desktop_name(client));
 		window->vnc = client;
 
+		// If the compositor configure (tile size) arrived BEFORE server
+		// init, the resize request went nowhere (unknown screen) - retry
+		// it now with the screen known (BEFORE the remote resize below,
+		// which overwrites window->width).
+		window_request_remote_size(window, window->width, window->height,
+				window->scale);
 		window_resize(window, width, height);
 	}
 
@@ -823,6 +871,11 @@ int on_vnc_client_alloc_fb(struct vnc_client* client)
 			: buffer_create_shm(width, height, 4 * width, shm_format);
 	}
 	window->back_buffer = window->buffers[0];
+
+	// The framebuffer changed size (server-confirmed resize). The
+	// viewport still points at the previous dimensions, which would
+	// scale the new buffer into the old rect (black bars). Re-apply it.
+	window_apply_viewport(window);
 
 	free(window->vnc_fb);
 	window->vnc_fb = malloc(height * stride);
@@ -873,6 +926,12 @@ void on_vnc_client_update_fb(struct vnc_client* client)
 	if (!pixman_region_not_empty(&client->damage) &&
 			client->n_av_frames == 0)
 		return;
+
+	// Retry a pending remote-size request; the screen size needed for it
+	// only becomes known after server init.
+	if (window && window->vnc == client)
+		window_request_remote_size(window, window->width, window->height,
+				window->scale);
 
 	if (window->back_buffer->is_attached)
 		fprintf(stderr, "Oops, back-buffer is still attached.\n");
