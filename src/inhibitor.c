@@ -71,6 +71,10 @@ bool inhibitor_init(struct shortcuts_inhibitor* self, struct wl_surface* surface
 	if (self->surface)
 		return false;
 
+	struct seat* seat;
+	wl_list_for_each(seat, seats, link)
+		inhibitor_add_seat(self, seat);
+
 	self->surface = surface;
 
 	struct shortcuts_seat_inhibitor* seat_inhibitor;
