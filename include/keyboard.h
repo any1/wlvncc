@@ -22,6 +22,7 @@
 
 #define PRESSED_KEYS_MAX 256
 
+struct aml_timer;
 struct xkb_context;
 struct xkb_keymap;
 struct xkb_state;
@@ -51,6 +52,12 @@ struct keyboard_collection {
 	void (*on_event)(struct keyboard_collection*, struct keyboard*,
 			uint32_t key, bool is_pressed);
 	void* userdata;
+
+	struct aml_timer* repeat_timer;
+	struct keyboard* repeat_keyboard;
+	uint32_t repeat_key;
+	int32_t repeat_rate;
+	int32_t repeat_delay;
 };
 
 struct keyboard_collection* keyboard_collection_new(void);

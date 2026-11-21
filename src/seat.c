@@ -62,6 +62,8 @@ struct seat* seat_new(struct wl_seat* wl_seat, uint32_t id)
 
 void seat_destroy(struct seat* self)
 {
+	if (self->data_device)
+		wl_data_device_destroy(self->data_device);
 	wl_seat_destroy(self->wl_seat);
 	free(self);
 }
