@@ -22,8 +22,14 @@
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
 #include <linux/input-event-codes.h>
+#include <aml.h>
 
 #include "keyboard.h"
+#include "seat.h"
+
+#define KEYBOARD_REPEAT_DEFAULT_RATE 25
+#define KEYBOARD_REPEAT_DEFAULT_DELAY 660
+#define KEYBOARD_REPEAT_MIN_PERIOD 10000
 
 enum keyboard_led_state {
 	KEYBOARD_LED_SCROLL_LOCK = 1 << 0,
@@ -88,6 +94,93 @@ void keyboard_destroy(struct keyboard* self)
 	free(self);
 }
 
+static bool key_is_modifier(xkb_keysym_t symbol)
+{
+	switch (symbol) {
+	case XKB_KEY_Shift_L:
+	case XKB_KEY_Shift_R:
+	case XKB_KEY_Control_L:
+	case XKB_KEY_Control_R:
+	case XKB_KEY_Caps_Lock:
+	case XKB_KEY_Shift_Lock:
+	case XKB_KEY_Meta_L:
+	case XKB_KEY_Meta_R:
+	case XKB_KEY_Alt_L:
+	case XKB_KEY_Alt_R:
+	case XKB_KEY_Super_L:
+	case XKB_KEY_Super_R:
+	case XKB_KEY_Hyper_L:
+	case XKB_KEY_Hyper_R:
+	case XKB_KEY_ISO_Level3_Shift:
+	case XKB_KEY_ISO_Level5_Shift:
+	case XKB_KEY_Mode_switch:
+	case XKB_KEY_Num_Lock:
+		return true;
+	}
+
+	return false;
+}
+
+static uint64_t keyboard_repeat_period_us(int32_t rate)
+{
+	if (rate <= 0)
+		return 0;
+
+	uint64_t period = 1000000 / (uint64_t)rate;
+	return period < KEYBOARD_REPEAT_MIN_PERIOD ?
+		KEYBOARD_REPEAT_MIN_PERIOD : period;
+}
+
+static void keyboard_repeat_stop(struct keyboard_collection* self)
+{
+	self->repeat_keyboard = NULL;
+	self->repeat_key = 0;
+
+	struct aml* aml = aml_get_default();
+	if (aml_is_started(aml, self->repeat_timer))
+		aml_stop(aml, self->repeat_timer);
+}
+
+static void keyboard_repeat_tick(struct aml_timer* timer)
+{
+	struct keyboard_collection* self = aml_get_userdata(timer);
+
+	uint64_t period = keyboard_repeat_period_us(self->repeat_rate);
+	if (!period || !self->repeat_keyboard || !self->repeat_key) {
+		keyboard_repeat_stop(self);
+		return;
+	}
+
+	self->on_event(self, self->repeat_keyboard, self->repeat_key, true);
+
+	struct aml* aml = aml_get_default();
+	if (aml_is_started(aml, timer))
+		aml_stop(aml, timer);
+	aml_set_duration(timer, period);
+	aml_start(aml, timer);
+}
+
+static void keyboard_repeat_start(struct keyboard_collection* self,
+		struct keyboard* keyboard, uint32_t key)
+{
+	uint64_t period = keyboard_repeat_period_us(self->repeat_rate);
+	if (!period) {
+		keyboard_repeat_stop(self);
+		return;
+	}
+
+	struct aml* aml = aml_get_default();
+	if (aml_is_started(aml, self->repeat_timer))
+		aml_stop(aml, self->repeat_timer);
+
+	self->repeat_keyboard = keyboard;
+	self->repeat_key = key;
+
+	int32_t delay = self->repeat_delay > 0 ? self->repeat_delay : 1;
+	aml_set_duration(self->repeat_timer, (uint64_t)delay * 1000);
+	aml_start(aml, self->repeat_timer);
+}
+
 struct keyboard_collection* keyboard_collection_new(void)
 {
 	struct keyboard_collection* self = calloc(1, sizeof(*self));
@@ -95,12 +188,25 @@ struct keyboard_collection* keyboard_collection_new(void)
 		return NULL;
 
 	wl_list_init(&self->keyboards);
+	self->repeat_rate = KEYBOARD_REPEAT_DEFAULT_RATE;
+	self->repeat_delay = KEYBOARD_REPEAT_DEFAULT_DELAY;
+
+	self->repeat_timer = aml_timer_new(
+			(uint64_t)KEYBOARD_REPEAT_DEFAULT_DELAY * 1000,
+			keyboard_repeat_tick, self, NULL);
+	if (!self->repeat_timer) {
+		free(self);
+		return NULL;
+	}
 
 	return self;
 }
 
 void keyboard_collection_destroy(struct keyboard_collection* self)
 {
+	keyboard_repeat_stop(self);
+	aml_unref(self->repeat_timer);
+
 	struct keyboard* keyboard;
 	struct keyboard* tmp;
 
@@ -161,8 +267,17 @@ static void handle_key(struct keyboard_collection* self, struct keyboard* keyboa
 
 	if (dir == XKB_KEY_DOWN) {
 		keyboard_add_pressed_key(keyboard, key);
+
+		xkb_keysym_t symbol =
+			xkb_state_key_get_one_sym(keyboard->state, key);
+		if (!key_is_modifier(symbol))
+			keyboard_repeat_start(self, keyboard, key);
 	} else {
 		keyboard_remove_pressed_key(keyboard, key);
+
+		if (self->repeat_keyboard == keyboard &&
+				self->repeat_key == key)
+			keyboard_repeat_stop(self);
 	}
 
 	self->on_event(self, keyboard, key, dir == XKB_KEY_DOWN);
@@ -175,6 +290,7 @@ static void keyboard_enter(void* data, struct wl_keyboard* wl_keyboard,
 	struct keyboard_collection* collection = data;
 	struct keyboard* keyboard =
 		keyboard_collection_find_wl_keyboard(collection, wl_keyboard);
+	keyboard->seat->last_serial = serial;
 	keyboard->waiting_for_modifiers = true;
 
 	uint32_t* key;
@@ -205,6 +321,10 @@ static enum xkb_key_direction xbk_key_direction_from_wl_keyboard_key_state(
 		return XKB_KEY_DOWN;
 	case WL_KEYBOARD_KEY_STATE_RELEASED:
 		return XKB_KEY_UP;
+#ifdef WL_KEYBOARD_KEY_STATE_REPEATED_SINCE_VERSION
+	case WL_KEYBOARD_KEY_STATE_REPEATED:
+		break;
+#endif
 	}
 
 	abort();
@@ -219,6 +339,14 @@ static void keyboard_key(void* data, struct wl_keyboard* wl_keyboard,
 	struct keyboard* keyboard =
 		keyboard_collection_find_wl_keyboard(self, wl_keyboard);
 	assert(keyboard);
+	keyboard->seat->last_serial = serial;
+
+#ifdef WL_KEYBOARD_KEY_STATE_REPEATED_SINCE_VERSION
+	if (state == WL_KEYBOARD_KEY_STATE_REPEATED) {
+		self->on_event(self, keyboard, key + 8, true);
+		return;
+	}
+#endif
 
 	enum xkb_key_direction dir =
 		xbk_key_direction_from_wl_keyboard_key_state(state);
@@ -263,6 +391,7 @@ static void keyboard_modifiers(void* data, struct wl_keyboard* wl_keyboard,
 	struct keyboard* keyboard =
 		keyboard_collection_find_wl_keyboard(self, wl_keyboard);
 	assert(keyboard);
+	keyboard->seat->last_serial = serial;
 
 	xkb_state_update_mask(keyboard->state, depressed, latched, locked, 0, 0,
 			group);
@@ -274,7 +403,21 @@ static void keyboard_modifiers(void* data, struct wl_keyboard* wl_keyboard,
 static void keyboard_repeat_info(void* data, struct wl_keyboard* wl_keyboard,
 		int32_t rate, int32_t delay)
 {
-	// TODO
+	struct keyboard_collection* self = data;
+	struct keyboard* keyboard =
+		keyboard_collection_find_wl_keyboard(self, wl_keyboard);
+
+	if (!keyboard)
+		return;
+
+	self->repeat_rate = rate;
+	self->repeat_delay = delay;
+
+	if (self->repeat_keyboard == keyboard && self->repeat_key &&
+			keyboard_repeat_period_us(rate))
+		keyboard_repeat_start(self, keyboard, self->repeat_key);
+	else
+		keyboard_repeat_stop(self);
 }
 
 static struct wl_keyboard_listener keyboard_listener = {

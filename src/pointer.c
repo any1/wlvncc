@@ -24,6 +24,7 @@
 #include <linux/input-event-codes.h>
 
 #include "pointer.h"
+#include "seat.h"
 
 #define STEP_SIZE 15.0
 
@@ -167,6 +168,7 @@ static void pointer_enter(void* data, struct wl_pointer* wl_pointer,
 		return;
 
 	pointer->serial = serial;
+	pointer->seat->last_serial = serial;
 
 	pointer_update_cursor(pointer);
 }
@@ -184,6 +186,7 @@ static void pointer_leave(void* data, struct wl_pointer* wl_pointer,
 		return;
 
 	pointer->serial = serial;
+	pointer->seat->last_serial = serial;
 }
 
 static void pointer_motion(void* data, struct wl_pointer* wl_pointer,
@@ -227,6 +230,7 @@ static void pointer_button(void* data, struct wl_pointer* wl_pointer,
 		return;
 
 	pointer->serial = serial;
+	pointer->seat->last_serial = serial;
 
 	switch (button) {
 	case BTN_LEFT:

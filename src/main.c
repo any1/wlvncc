@@ -52,6 +52,8 @@
 #include "linux-dmabuf-v1.h"
 #include "time-util.h"
 #include "output.h"
+#include "clipboard.h"
+#include "ext-data-control-v1.h"
 
 #define CANARY_TICK_PERIOD INT64_C(100000) // us
 #define CANARY_LETHALITY_LEVEL INT64_C(8000) // us
@@ -113,7 +115,11 @@ struct wl_subcompositor* subcompositor;
 struct wp_viewporter* viewporter;
 struct wp_single_pixel_buffer_manager_v1* single_pixel_manager;
 static struct zxdg_decoration_manager_v1* decoration_manager;
+static struct wl_data_device_manager* data_device_manager;
+static struct ext_data_control_manager_v1* ext_data_manager;
+static struct clipboard* clipboard;
 static bool decorations = true;
+static bool clipboard_enabled = true;
 
 static bool have_egl = false;
 static bool shortcut_inhibit = false;
@@ -182,6 +188,16 @@ static void registry_add(void* data, struct wl_registry* registry, uint32_t id,
 		single_pixel_manager = wl_registry_bind(registry, id, &wp_single_pixel_buffer_manager_v1_interface, 1);
 	} else if (strcmp(interface, zxdg_decoration_manager_v1_interface.name) == 0 && decorations) {
 		decoration_manager = wl_registry_bind(registry, id, &zxdg_decoration_manager_v1_interface, 1);
+	} else if (strcmp(interface, wl_data_device_manager_interface.name) == 0 && clipboard_enabled) {
+		if (!data_device_manager) {
+			uint32_t bind_version = version < 3 ? version : 3;
+			data_device_manager = wl_registry_bind(registry, id,
+					&wl_data_device_manager_interface, bind_version);
+		}
+	} else if (strcmp(interface, ext_data_control_manager_v1_interface.name) == 0 && clipboard_enabled) {
+		if (!ext_data_manager)
+			ext_data_manager = wl_registry_bind(registry, id,
+					&ext_data_control_manager_v1_interface, 1);
 	} else if (strcmp(interface, "wl_seat") == 0) {
 		struct wl_seat* wl_seat;
 		wl_seat = wl_registry_bind(registry, id, &wl_seat_interface, 5);
@@ -892,6 +908,20 @@ void on_vnc_client_update_fb(struct vnc_client* client)
 	window_swap(window);
 }
 
+static void on_local_clipboard_selection(void* userdata,
+		const char* text, size_t len)
+{
+	struct vnc_client* client = userdata;
+	vnc_client_send_cut_text(client, text, len);
+}
+
+static void on_vnc_client_cut_text(struct vnc_client* client,
+		const char* text, size_t len)
+{
+	(void)client;
+	clipboard_set_selection_from_rfb(clipboard, text, len);
+}
+
 void on_vnc_client_event(struct aml_handler* handler)
 {
 	struct vnc_client* client = aml_get_userdata(handler);
@@ -1067,6 +1097,7 @@ Usage: wlvncc <address> [port]\n\
     -h,--help                Get help.\n\
     -n,--hide-cursor         Hide the client-side cursor.\n\
     -d,--no-decorations      Do not request window decorations from the compositor\n\
+    -X,--no-clipboard        Disable clipboard synchronization.\n\
     -i,--shortcut-inhibit    Enable the shortcut inhibitor while being focused.\n\
     -q,--quality             Quality level (0 - 9).\n\
     -t,--tls-cert            Use given TLS cert for authenticating server.\n\
@@ -1084,7 +1115,7 @@ int main(int argc, char* argv[])
 	const char* encodings = NULL;
 	int quality = -1;
 	int compression = -1;
-	static const char* shortopts = "a:A:q:c:e:hndist:";
+	static const char* shortopts = "a:A:q:c:e:hndist:X";
 	bool use_sw_renderer = false;
 
 	static const struct option longopts[] = {
@@ -1094,6 +1125,7 @@ int main(int argc, char* argv[])
 		{ "encodings", required_argument, NULL, 'e' },
 		{ "hide-cursor", no_argument, NULL, 'n' },
 		{ "no-decorations", no_argument, NULL, 'd' },
+		{ "no-clipboard", no_argument, NULL, 'X' },
 		{ "shortcut-inhibit", no_argument, NULL, 'i' },
 		{ "help", no_argument, NULL, 'h' },
 		{ "quality", required_argument, NULL, 'q' },
@@ -1129,6 +1161,9 @@ int main(int argc, char* argv[])
 		case 'd':
 			decorations = false;
 			break;
+		case 'X':
+			clipboard_enabled = false;
+			break;
 		case 'i':
 			shortcut_inhibit = true;
 			break;
@@ -1163,6 +1198,8 @@ int main(int argc, char* argv[])
 
 	if (init_signal_handler() < 0)
 		goto signal_handler_failure;
+
+	signal(SIGPIPE, SIG_IGN);
 
 	wl_display = wl_display_connect(NULL);
 	if (!wl_display) {
@@ -1218,6 +1255,7 @@ int main(int argc, char* argv[])
 
 	vnc->alloc_fb = on_vnc_client_alloc_fb;
 	vnc->update_fb = on_vnc_client_update_fb;
+	vnc->cut_text = on_vnc_client_cut_text;
 
 	uint32_t format = have_egl ? dmabuf_format : shm_format;
 
@@ -1258,6 +1296,19 @@ int main(int argc, char* argv[])
 		goto vnc_setup_failure;
 	}
 
+	if (clipboard_enabled) {
+		struct seat* seat = seat_first(&seats);
+		if ((data_device_manager || ext_data_manager) && seat) {
+			clipboard = clipboard_new(wl_display, data_device_manager,
+					ext_data_manager, seat,
+					on_local_clipboard_selection, vnc);
+			if (!clipboard)
+				fprintf(stderr, "Failed to initialise clipboard support\n");
+		} else {
+			fprintf(stderr, "Clipboard support unavailable: missing Wayland data device or seat\n");
+		}
+	}
+
 	pointers->userdata = vnc;
 	keyboards->userdata = vnc;
 
@@ -1272,6 +1323,8 @@ int main(int argc, char* argv[])
 	if (window)
 		window_destroy(window);
 vnc_setup_failure:
+	clipboard_destroy(clipboard);
+	clipboard = NULL;
 	vnc_client_destroy(vnc);
 vnc_failure:
 	output_list_destroy(&outputs);
@@ -1281,6 +1334,10 @@ vnc_failure:
 	xdg_wm_base_destroy(xdg_wm_base);
 	if (decoration_manager)
 		zxdg_decoration_manager_v1_destroy(decoration_manager);
+	if (data_device_manager)
+		wl_data_device_manager_destroy(data_device_manager);
+	if (ext_data_manager)
+		ext_data_control_manager_v1_destroy(ext_data_manager);
 
 	egl_finish();
 	if (zwp_linux_dmabuf_v1)
