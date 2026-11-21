@@ -1681,6 +1681,29 @@ rfbBool SendExtDesktopSize(rfbClient* client, uint16_t width, uint16_t height)
 		return TRUE;
 	}
 
+	// No-op when the framebuffer already has the requested size.
+	// Besides saving a round trip, this avoids ever sending an
+	// invented screen id before the server announced its layout:
+	// Xvnc 1.16.2 segfaults on those (xfce/RandR path).
+	if ((uint16_t)client->width == width &&
+	    (uint16_t)client->height == height)
+		return TRUE;
+
+	// Without a server-announced layout the screen id is unknown.
+	// Refuse (FALSE) so the caller retries once ExtendedDesktopSize
+	// arrives; frame updates call back until it goes out.
+	if (client->screen.width == 0 && client->screen.height == 0) {
+		static uint16_t postponed_w, postponed_h;
+		if (postponed_w != width || postponed_h != height) {
+			rfbClientLog("Screen layout unknown - postponing "
+			             "dimensions %dx%d\n",
+			             width, height);
+			postponed_w = width;
+			postponed_h = height;
+		}
+		return FALSE;
+	}
+
 	if (client->screen.width != rfbClientSwap16IfLE(width) ||
 	    client->screen.height != rfbClientSwap16IfLE(height)) {
 		rfbClientLog("Sending dimensions %dx%d\n", width, height);
@@ -1688,11 +1711,14 @@ rfbBool SendExtDesktopSize(rfbClient* client, uint16_t width, uint16_t height)
 		sdm.width = rfbClientSwap16IfLE(width);
 		sdm.height = rfbClientSwap16IfLE(height);
 		sdm.numberOfScreens = 1;
-		// Explicitly address screen id 0: single-display servers
-		// number their only display 0, and an uninitialized id is
-		// rejected as invalid layout. Also zero x/y/flags.
+		// Echo the server-announced screen id (ExtendedDesktopSize).
+		// TigerVNC numbers its single display with a random id and
+		// segfaults on an invented one (Xvnc 1.16.2, RandR path);
+		// WayVNC-style servers number displays from 0 and announce
+		// it the same way. The unknown-layout case never reaches
+		// here (postponed above). Also zero x/y/flags.
 		memset(&screen, 0, sizeof(screen));
-		screen.id = rfbClientSwap32IfLE(0);
+		screen.id = client->screen.id;
 		screen.width = rfbClientSwap16IfLE(width);
 		screen.height = rfbClientSwap16IfLE(height);
 

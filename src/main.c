@@ -518,14 +518,14 @@ static void window_request_remote_size(struct window* w, int width,
 	long fb_h = (long)height * (long)scale;
 	if (fb_w <= 0 || fb_h <= 0 || fb_w > 8192 || fb_h > 8192)
 		return;
-	// Send only once per window size; the server may take a while to
-	// report its screen (ExtendedDesktopSize), so frame updates retry
-	// via on_vnc_client_update_fb until it goes out.
+	// Send only once per window size; a postponed request (FALSE:
+	// layout unknown) is retried by frame updates via
+	// on_vnc_client_update_fb until it goes out.
 	if (w->req_width == fb_w && w->req_height == fb_h)
 		return;
-	// The screen size arrives asynchronously (ExtendedDesktopSize, if
-	// the server sends one at all). Server init (framebuffer size known)
-	// is enough: single-display servers number their display 0.
+	// The screen layout arrives asynchronously (ExtendedDesktopSize,
+	// if the server sends one at all); without it there is no valid
+	// screen id to address.
 	if (vnc_client_get_width(w->vnc) == 0 ||
 			vnc_client_get_height(w->vnc) == 0)
 		return;
@@ -923,15 +923,17 @@ static void window_damage_region(struct window* w,
 
 void on_vnc_client_update_fb(struct vnc_client* client)
 {
-	if (!pixman_region_not_empty(&client->damage) &&
-			client->n_av_frames == 0)
-		return;
-
-	// Retry a pending remote-size request; the screen size needed for it
-	// only becomes known after server init.
+	// Retry a pending remote-size request; the screen id needed for it
+	// only becomes known after the server announced its layout.
+	// Runs before the damage check: the server may answer with a
+	// layout-only update.
 	if (window && window->vnc == client)
 		window_request_remote_size(window, window->width, window->height,
 				window->scale);
+
+	if (!pixman_region_not_empty(&client->damage) &&
+			client->n_av_frames == 0)
+		return;
 
 	if (window->back_buffer->is_attached)
 		fprintf(stderr, "Oops, back-buffer is still attached.\n");
@@ -954,8 +956,10 @@ void on_vnc_client_update_fb(struct vnc_client* client)
 void on_vnc_client_event(struct aml_handler* handler)
 {
 	struct vnc_client* client = aml_get_userdata(handler);
-	if (vnc_client_process(client) < 0)
+	if (vnc_client_process(client) < 0) {
+		fprintf(stderr, "VNC connection lost\n");
 		do_run = false;
+	}
 }
 
 int init_vnc_client_handler(struct vnc_client* client)
